@@ -141,26 +141,24 @@ async def list_documents(
     database = get_database(request)
 
     async with database.session() as session:
-        documents = DocumentRepository(session)
-        chunks = ChunkRepository(session)
+        # One query for the page of documents, one for their chunk counts.
+        # Per-kind loops and per-document chunk loads made this take 20s once
+        # the corpus held a few thousand chunks.
+        found = await DocumentRepository(session).list_all(kind=kind, limit=limit, offset=offset)
+        counts = await ChunkRepository(session).count_by_document([d.id for d in found])
 
-        kinds = [kind] if kind else list(DocumentKind)
-        summaries: list[DocumentSummary] = []
-        for one_kind in kinds:
-            for document in await documents.list_by_kind(one_kind, limit=limit, offset=offset):
-                stored = await chunks.list_for_document(document.id)
-                summaries.append(
-                    DocumentSummary(
-                        id=document.id,
-                        kind=document.kind,
-                        title=document.title,
-                        source_ref=document.source_ref,
-                        source_url=document.source_url,
-                        chunk_count=len(stored),
-                        meta=document.meta,
-                    )
-                )
-        return summaries[:limit]
+        return [
+            DocumentSummary(
+                id=document.id,
+                kind=document.kind,
+                title=document.title,
+                source_ref=document.source_ref,
+                source_url=document.source_url,
+                chunk_count=counts.get(document.id, 0),
+                meta=document.meta,
+            )
+            for document in found
+        ]
 
 
 @router.get("/search", response_model=SearchResponse, summary="Search the corpus")

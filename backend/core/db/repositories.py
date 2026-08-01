@@ -79,6 +79,22 @@ class DocumentRepository:
         await self._session.flush()
         return document, True
 
+    async def list_all(
+        self,
+        *,
+        kind: DocumentKind | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Document]:
+        """A page of documents, optionally filtered by kind."""
+        stmt = select(Document)
+        if kind is not None:
+            stmt = stmt.where(Document.kind == kind)
+        result = await self._session.execute(
+            stmt.order_by(Document.created_at.desc()).limit(limit).offset(offset)
+        )
+        return result.scalars().all()
+
     async def list_by_kind(
         self, kind: DocumentKind, *, limit: int = 100, offset: int = 0
     ) -> Sequence[Document]:
@@ -165,6 +181,23 @@ class ChunkRepository:
             row.embedding = embeddings[row.id]
         await self._session.flush()
         return len(rows)
+
+    async def count_by_document(self, document_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Chunk counts for several documents in one query.
+
+        Counting in SQL rather than by loading rows: the Companies Act alone
+        has 3,499 chunks, and fetching their full text to call len() on the
+        list made the document listing take 20 seconds.
+        """
+        if not document_ids:
+            return {}
+
+        result = await self._session.execute(
+            select(Chunk.document_id, func.count())
+            .where(Chunk.document_id.in_(document_ids))
+            .group_by(Chunk.document_id)
+        )
+        return {row[0]: int(row[1]) for row in result}
 
     async def count(self) -> int:
         result = await self._session.execute(select(func.count()).select_from(Chunk))
