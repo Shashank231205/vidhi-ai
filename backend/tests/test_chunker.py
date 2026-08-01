@@ -137,3 +137,39 @@ def test_as_row_matches_repository_shape() -> None:
 
 def test_token_estimate_is_monotonic() -> None:
     assert estimate_tokens("short") < estimate_tokens("a much longer piece of text here")
+
+
+def test_table_of_contents_dot_leaders_are_stripped() -> None:
+    """'Notice ....... 12' survives PDF extraction as noise.
+
+    The dots read as sentence boundaries to the splitter and match nothing
+    useful in full-text search.
+    """
+    chunks = chunk_legal_text(
+        "4. Notice. " + "Consent must be free, specific and informed. " * 4,
+        min_tokens=1,
+    )
+    assert "......" not in chunks[0].content
+
+
+def test_contents_page_fragments_are_dropped() -> None:
+    """A real extraction artefact from the Companies Act PDF.
+
+    These clear the token budget but carry no citable prose, and looked like a
+    broken product when opened as the source behind a citation.
+    """
+    statute = (
+        "3. \n. \n. \nTotal\nJoint Ventures\n\n"
+        "4. Grounds for processing. A person may process the personal data of a "
+        "Data Principal only in accordance with the provisions of this Act and "
+        "for a lawful purpose for which consent has been given."
+    )
+    labels = [c.label for c in chunk_legal_text(statute)]
+
+    assert "Section 4" in labels
+    assert "Section 3" not in labels
+
+
+def test_a_short_document_still_produces_a_chunk() -> None:
+    """The substance filter must never empty a document entirely."""
+    assert len(chunk_legal_text("Short agreement text.", min_tokens=1)) == 1

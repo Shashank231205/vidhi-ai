@@ -3,131 +3,124 @@
 /*
  * Design tokens.
  *
- * Built around a deep indigo rather than a saturated blue: legal software is
- * read for long stretches, and the lower-chroma hue holds up better against
- * dense text.
+ * Three decisions carry the whole look, and each has a reason beyond taste:
  *
- * Risk and stance colours are the one place chroma is spent deliberately —
- * they carry meaning. They are never the only signal: every badge pairs colour
- * with a text label, so the UI still works in greyscale or with colour-vision
+ * - **Parchment, not grey.** The ground is a warm off-white. Legal documents
+ *   are read for long stretches, and a cool grey UI makes long-form serif text
+ *   look washed out next to it.
+ * - **Serif for prose, mono for provenance.** Statutory text and headings are
+ *   serif; anything the system asserts about its own work — chunk ids, hashes,
+ *   trace events, confidence — is monospace. The typeface tells you whether
+ *   you are reading law or reading machinery.
+ * - **Gold as the only accent.** Chroma is reserved for meaning. Gold marks
+ *   interaction; risk and stance get their own hues and nothing else does.
+ *
+ * Risk and stance colours are never the sole signal — every badge pairs colour
+ * with a text label, so the interface survives greyscale and colour-vision
  * deficiency.
  */
 
 @theme {
-  /* Neutrals, warm-tinted. Pure grey reads cold beside legal prose. */
-  --color-ink-50: oklch(0.985 0.002 285);
-  --color-ink-100: oklch(0.968 0.004 285);
-  --color-ink-200: oklch(0.925 0.006 285);
-  --color-ink-300: oklch(0.868 0.008 285);
-  --color-ink-400: oklch(0.706 0.012 285);
-  --color-ink-500: oklch(0.556 0.014 285);
-  --color-ink-600: oklch(0.442 0.014 285);
-  --color-ink-700: oklch(0.372 0.013 285);
-  --color-ink-800: oklch(0.269 0.011 285);
-  --color-ink-900: oklch(0.208 0.010 285);
-  --color-ink-950: oklch(0.145 0.008 285);
+  /* Parchment ground */
+  --color-paper-50: oklch(0.991 0.003 85);
+  --color-paper-100: oklch(0.977 0.006 85);
+  --color-paper-200: oklch(0.956 0.010 85);
+  --color-paper-300: oklch(0.928 0.014 82);
 
-  --color-brand-50: oklch(0.970 0.014 285);
-  --color-brand-100: oklch(0.930 0.032 285);
-  --color-brand-200: oklch(0.880 0.055 285);
-  --color-brand-300: oklch(0.780 0.090 285);
-  --color-brand-500: oklch(0.585 0.170 285);
-  --color-brand-600: oklch(0.520 0.180 285);
-  --color-brand-700: oklch(0.452 0.165 285);
-  --color-brand-900: oklch(0.300 0.110 285);
+  /* Ink — warm near-black, never pure */
+  --color-ink-400: oklch(0.640 0.010 75);
+  --color-ink-500: oklch(0.545 0.011 75);
+  --color-ink-600: oklch(0.455 0.012 75);
+  --color-ink-700: oklch(0.360 0.012 75);
+  --color-ink-800: oklch(0.265 0.011 75);
+  --color-ink-900: oklch(0.195 0.009 75);
+  --color-ink-950: oklch(0.145 0.008 75);
 
-  /* Risk. Deliberately not red/amber/green: green would read as "passed"
-     when low risk still means a finding was raised. */
-  --color-risk-high: oklch(0.577 0.195 27);
-  --color-risk-medium: oklch(0.640 0.145 65);
-  --color-risk-low: oklch(0.560 0.055 240);
+  /* Gold — interaction and provenance markers */
+  --color-gold-100: oklch(0.945 0.030 85);
+  --color-gold-200: oklch(0.895 0.055 85);
+  --color-gold-400: oklch(0.760 0.095 82);
+  --color-gold-500: oklch(0.700 0.105 80);
+  --color-gold-600: oklch(0.630 0.100 78);
+  --color-gold-700: oklch(0.545 0.090 76);
 
-  /* Stance, for CaseLens. */
-  --color-supports: oklch(0.545 0.130 155);
-  --color-undermines: oklch(0.577 0.195 27);
-  --color-neutral-stance: oklch(0.556 0.014 285);
+  /* Verdicts. Muted on purpose — a compliance tool that shouts loses the
+     distinction between a serious finding and an ordinary one. */
+  --color-verified: oklch(0.545 0.075 155);
+  --color-risk-high: oklch(0.545 0.145 28);
+  --color-risk-medium: oklch(0.660 0.105 70);
+  --color-risk-low: oklch(0.560 0.035 240);
+  --color-supports: oklch(0.520 0.070 152);
+  --color-undermines: oklch(0.545 0.145 28);
 
-  /* Type scale, 1.2 ratio and capped: legal UIs need density, not drama. */
+  /* Type. Serif display, monospace for anything machine-asserted. */
+  --font-serif: var(--font-display), ui-serif, Georgia, serif;
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, "SF Mono", Menlo, monospace;
+
   --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.5rem;
-  --text-3xl: 1.875rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 3rem;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-stack), ui-monospace, "SF Mono", Menlo, monospace;
-
-  --radius-card: 0.625rem;
-
-  /* Short and eased-out. The trace updates continuously, and anything slower
-     than ~220ms reads as lag rather than polish. */
+  --radius-card: 0.5rem;
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/* Semantic surface tokens, themed below. */
 :root {
-  --background: oklch(0.985 0.002 285);
-  --surface: white;
-  --surface-sunken: oklch(0.968 0.004 285);
-  --border: oklch(0.925 0.006 285);
-  --foreground: oklch(0.208 0.010 285);
-  --muted: oklch(0.556 0.014 285);
-
-  --risk-high-bg: oklch(0.958 0.022 27);
-  --risk-medium-bg: oklch(0.965 0.030 75);
-  --risk-low-bg: oklch(0.962 0.012 240);
-  --supports-bg: oklch(0.960 0.030 155);
-  --undermines-bg: oklch(0.958 0.022 27);
+  --canvas: oklch(0.991 0.003 85);
+  --surface: oklch(0.977 0.006 85);
+  --surface-sunken: oklch(0.956 0.010 85);
+  --border: oklch(0.905 0.010 82);
+  --border-strong: oklch(0.845 0.014 82);
+  --foreground: oklch(0.195 0.009 75);
+  --muted: oklch(0.545 0.011 75);
+  --accent: oklch(0.630 0.100 78);
 }
 
 /* Dark values, shared by the system preference and the explicit toggle. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --background: oklch(0.145 0.008 285);
-    --surface: oklch(0.208 0.010 285);
-    --surface-sunken: oklch(0.175 0.009 285);
-    --border: oklch(0.269 0.011 285);
-    --foreground: oklch(0.968 0.004 285);
-    --muted: oklch(0.706 0.012 285);
+    --canvas: oklch(0.155 0.008 75);
+    --surface: oklch(0.195 0.009 75);
+    --surface-sunken: oklch(0.225 0.010 75);
+    --border: oklch(0.275 0.011 75);
+    --border-strong: oklch(0.345 0.012 75);
+    --foreground: oklch(0.960 0.005 85);
+    --muted: oklch(0.700 0.012 75);
+    --accent: oklch(0.760 0.095 82);
 
-    --risk-high-bg: oklch(0.270 0.055 27);
-    --risk-medium-bg: oklch(0.275 0.050 75);
-    --risk-low-bg: oklch(0.255 0.022 240);
-    --supports-bg: oklch(0.260 0.045 155);
-    --undermines-bg: oklch(0.270 0.055 27);
-
-    /* Foreground risk hues lift in dark mode; the light-mode values fail
-       contrast against a dark surface. */
-    --color-risk-high: oklch(0.712 0.160 27);
-    --color-risk-medium: oklch(0.780 0.130 75);
-    --color-risk-low: oklch(0.720 0.045 240);
-    --color-supports: oklch(0.720 0.130 155);
-    --color-undermines: oklch(0.712 0.160 27);
+    /* Verdict hues lift in dark mode — the light values fail contrast. */
+    --color-verified: oklch(0.720 0.090 155);
+    --color-risk-high: oklch(0.700 0.150 28);
+    --color-risk-medium: oklch(0.790 0.110 72);
+    --color-risk-low: oklch(0.720 0.040 240);
+    --color-supports: oklch(0.710 0.090 152);
+    --color-undermines: oklch(0.700 0.150 28);
   }
 }
 
 :root[data-theme="dark"] {
-  --background: oklch(0.145 0.008 285);
-  --surface: oklch(0.208 0.010 285);
-  --surface-sunken: oklch(0.175 0.009 285);
-  --border: oklch(0.269 0.011 285);
-  --foreground: oklch(0.968 0.004 285);
-  --muted: oklch(0.706 0.012 285);
+  --canvas: oklch(0.155 0.008 75);
+  --surface: oklch(0.195 0.009 75);
+  --surface-sunken: oklch(0.225 0.010 75);
+  --border: oklch(0.275 0.011 75);
+  --border-strong: oklch(0.345 0.012 75);
+  --foreground: oklch(0.960 0.005 85);
+  --muted: oklch(0.700 0.012 75);
+  --accent: oklch(0.760 0.095 82);
 
-  --risk-high-bg: oklch(0.270 0.055 27);
-  --risk-medium-bg: oklch(0.275 0.050 75);
-  --risk-low-bg: oklch(0.255 0.022 240);
-  --supports-bg: oklch(0.260 0.045 155);
-  --undermines-bg: oklch(0.270 0.055 27);
-
-  --color-risk-high: oklch(0.712 0.160 27);
-  --color-risk-medium: oklch(0.780 0.130 75);
-  --color-risk-low: oklch(0.720 0.045 240);
-  --color-supports: oklch(0.720 0.130 155);
-  --color-undermines: oklch(0.712 0.160 27);
+  --color-verified: oklch(0.720 0.090 155);
+  --color-risk-high: oklch(0.700 0.150 28);
+  --color-risk-medium: oklch(0.790 0.110 72);
+  --color-risk-low: oklch(0.720 0.040 240);
+  --color-supports: oklch(0.710 0.090 152);
+  --color-undermines: oklch(0.700 0.150 28);
 }
 
 @layer base {
@@ -140,26 +133,33 @@
   }
 
   body {
-    background: var(--background);
+    background: var(--canvas);
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: var(--text-base);
-    line-height: 1.55;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-serif);
+    letter-spacing: -0.018em;
+  }
+
   /* Visible focus everywhere: the app is keyboard-navigable by requirement,
-     and the browser default is invisible against the dark surfaces. */
+     and the browser default is invisible against these surfaces. */
   :focus-visible {
-    outline: 2px solid var(--color-brand-500);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: 3px;
   }
 
   ::selection {
-    background: var(--color-brand-100);
-    color: var(--color-brand-900);
+    background: var(--color-gold-200);
+    color: var(--color-ink-900);
   }
 }
 
@@ -173,12 +173,22 @@
   color: var(--muted);
 }
 
-/* Quoted statute and judgment text: tighter, so a cited provision is visually
-   distinct from the application's own prose. */
+/* Section labels — small, spaced, uppercase monospace. These mark machine
+   metadata and are the main texture in the reference design. */
+@utility label-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Statute and judgment text. Serif and looser, so quoted law reads as a
+   document rather than as UI copy. */
 @utility legal-text {
-  font-size: var(--text-sm);
-  line-height: 1.68;
-  letter-spacing: -0.003em;
+  font-family: var(--font-serif);
+  font-size: var(--text-base);
+  line-height: 1.75;
 }
 
 @layer utilities {
@@ -211,7 +221,7 @@
   @keyframes slide-up {
     from {
       opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(5px);
     }
     to {
       opacity: 1;
@@ -220,7 +230,7 @@
   }
 
   .animate-in {
-    animation: slide-up 0.22s var(--ease-out-quart) both;
+    animation: slide-up 0.24s var(--ease-out-quart) both;
   }
 
   @keyframes pulse-dot {
@@ -229,12 +239,12 @@
       opacity: 1;
     }
     50% {
-      opacity: 0.35;
+      opacity: 0.3;
     }
   }
 
   .animate-pulse-dot {
-    animation: pulse-dot 1.4s ease-in-out infinite;
+    animation: pulse-dot 1.5s ease-in-out infinite;
   }
 
   /* The trace animates continuously, so honouring this is not optional. */

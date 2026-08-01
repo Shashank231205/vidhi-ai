@@ -199,6 +199,61 @@ async def search_documents(
     )
 
 
+class ChunkDetail(BaseModel):
+    """A retrieved chunk, with everything needed to show its provenance."""
+
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    source_ref: str
+    source_url: str | None
+    label: str | None
+    content: str
+    ordinal: int
+    #: Short content hash. The verifier matches quotes against this chunk's
+    #: text, so showing the hash makes that check inspectable rather than
+    #: something the user has to take on trust.
+    content_hash: str
+    meta: dict[str, Any]
+
+
+@router.get(
+    "/chunks/{chunk_id}",
+    response_model=ChunkDetail,
+    summary="Fetch the exact source text behind a citation",
+)
+async def get_chunk(request: Request, chunk_id: uuid.UUID) -> ChunkDetail:
+    """Resolve a citation to the text it was verified against.
+
+    Every finding carries the chunk_id its quote was checked against. This
+    endpoint is what lets a reviewer open that text and confirm the claim
+    themselves — the difference between asserting groundedness and showing it.
+    """
+    database = get_database(request)
+
+    async with database.session() as session:
+        chunk = await ChunkRepository(session).get(chunk_id)
+        if chunk is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found.")
+
+        document = await DocumentRepository(session).get(chunk.document_id)
+        if document is None:  # pragma: no cover - FK makes this unreachable
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Source not found.")
+
+        return ChunkDetail(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            document_title=document.title,
+            source_ref=document.source_ref,
+            source_url=document.source_url,
+            label=chunk.label,
+            content=chunk.content,
+            ordinal=chunk.ordinal,
+            content_hash=document.content_hash[:12],
+            meta=document.meta,
+        )
+
+
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,

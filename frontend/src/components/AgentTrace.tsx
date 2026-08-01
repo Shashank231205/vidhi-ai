@@ -1,65 +1,78 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Label } from "@/components/ui";
 import type { NodeStatus, TraceEvent } from "@/lib/api";
 
 /**
  * The live reasoning trace.
  *
- * An audit runs for tens of seconds. Without this the user sees a spinner and
- * cannot tell a slow run from a hung one. More importantly, it is where the
- * agent's self-correction becomes visible: a `retrying` event is the critic
- * rejecting weak retrieval or the verifier rejecting an ungrounded citation,
- * and that is the part worth watching.
+ * A run takes tens of seconds. Without this the user cannot tell a slow run
+ * from a hung one — but the more important job is showing self-correction: a
+ * `retrying` row is the critic rejecting weak retrieval, or the verifier
+ * rejecting an ungrounded citation. That is the product's actual claim, so it
+ * is presented as a record rather than hidden behind a spinner.
  */
 
 const NODE_LABELS: Record<string, string> = {
-  parse: "Parsing",
-  retrieve: "Retrieving law",
-  critic: "Assessing context",
-  expand: "Following citations",
-  analyze: "Analysing",
-  stance: "Assessing stance",
-  classify: "Scoring risk",
-  verify: "Verifying citations",
-  synthesise: "Drafting memo",
-  clause: "Clause complete",
-  emit: "Complete",
+  parse: "PARSE",
+  retrieve: "RETRIEVE",
+  critic: "CRITIC",
+  expand: "EXPAND",
+  analyze: "ANALYZE",
+  stance: "STANCE",
+  classify: "CLASSIFY",
+  verify: "VERIFY",
+  synthesise: "SYNTHESISE",
+  clause: "CLAUSE",
+  emit: "COMPLETE",
 };
 
-const STATUS_COLOUR: Record<NodeStatus, string> = {
+const GLYPH: Record<NodeStatus, string> = {
+  started: "○",
+  completed: "✓",
+  retrying: "●",
+  failed: "✕",
+  skipped: "–",
+};
+
+const COLOUR: Record<NodeStatus, string> = {
   started: "var(--muted)",
-  completed: "var(--color-supports)",
+  completed: "var(--color-verified)",
   retrying: "var(--color-risk-medium)",
   failed: "var(--color-risk-high)",
   skipped: "var(--muted)",
 };
 
-function TraceRow({ event }: { event: TraceEvent }) {
-  const isRetry = event.status === "retrying" || event.attempt > 1;
+function Row({ event }: { event: TraceEvent }) {
+  const retrying = event.status === "retrying";
 
   return (
-    <li className="animate-in flex items-baseline gap-3 py-1.5 text-sm">
+    <li
+      className="animate-in flex items-baseline gap-2.5 rounded px-2 py-1.5 font-mono text-xs"
+      style={retrying ? { background: "var(--surface-sunken)" } : undefined}
+    >
       <span
         aria-hidden
-        className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
-          event.status === "started" ? "animate-pulse-dot" : ""
-        }`}
-        style={{ background: STATUS_COLOUR[event.status] }}
-      />
-      <span className="w-36 shrink-0 text-xs font-medium">
-        {NODE_LABELS[event.node] ?? event.node}
-        {isRetry && (
-          <span
-            className="ml-1.5 font-normal"
-            style={{ color: "var(--color-risk-medium)" }}
-          >
-            #{event.attempt}
-          </span>
-        )}
+        className={`shrink-0 ${event.status === "started" ? "animate-pulse-dot" : ""}`}
+        style={{ color: COLOUR[event.status] }}
+      >
+        {GLYPH[event.status]}
       </span>
-      <span className="min-w-0 flex-1 text-muted">{event.detail}</span>
-      <span className="shrink-0 font-mono text-2xs text-muted tabular-nums">
+
+      <span className="shrink-0 tracking-wider" style={{ color: COLOUR[event.status] }}>
+        {NODE_LABELS[event.node] ?? event.node.toUpperCase()}
+      </span>
+
+      {event.attempt > 1 && (
+        <span className="shrink-0" style={{ color: "var(--color-risk-medium)" }}>
+          #{event.attempt}
+        </span>
+      )}
+
+      <span className="min-w-0 flex-1 text-muted">· {event.detail}</span>
+
+      <span className="shrink-0 tabular-nums text-muted opacity-60">
         {(event.elapsed_ms / 1000).toFixed(1)}s
       </span>
     </li>
@@ -69,14 +82,16 @@ function TraceRow({ event }: { event: TraceEvent }) {
 export function AgentTrace({
   events,
   running,
+  title = "Live agent trace",
 }: {
   events: TraceEvent[];
   running: boolean;
+  title?: string;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Follow the tail while running, but stop once finished so the user can
-  // scroll back through what happened without being yanked to the bottom.
+  // Follow the tail while running, then stop — so a finished trace can be
+  // scrolled back through without being yanked to the bottom.
   useEffect(() => {
     if (running) endRef.current?.scrollIntoView({ block: "nearest" });
   }, [events.length, running]);
@@ -84,41 +99,62 @@ export function AgentTrace({
   if (!events.length && !running) return null;
 
   const retries = events.filter((event) => event.status === "retrying").length;
+  const completed = events.filter((event) => event.status === "completed").length;
+  const progress = running
+    ? Math.min(95, Math.round((completed / Math.max(events.length, 1)) * 100))
+    : 100;
 
   return (
     <section
-      className="surface overflow-hidden"
+      className="rounded-[var(--radius-card)] border"
+      style={{ background: "var(--surface)" }}
       aria-label="Agent reasoning trace"
     >
-      <header className="flex items-center justify-between border-b px-4 py-2.5">
-        <h2 className="text-xs font-semibold tracking-wide uppercase text-muted">
-          Reasoning trace
-        </h2>
-        {retries > 0 && (
-          <span
-            className="text-2xs font-medium"
-            style={{ color: "var(--color-risk-medium)" }}
-            title="The agent rejected its own intermediate results and retried"
-          >
-            {retries} self-correction{retries === 1 ? "" : "s"}
-          </span>
-        )}
+      <header className="flex items-start justify-between gap-4 border-b px-4 py-3">
+        <div>
+          <Label>{title}</Label>
+          <h2 className="mt-1 font-serif text-lg leading-tight">
+            {running ? "Verification loop in progress" : "Trace complete"}
+          </h2>
+        </div>
+
+        <span
+          className="shrink-0 rounded px-2 py-1 font-mono text-2xs tabular-nums"
+          style={{
+            background: running ? "var(--color-gold-600)" : "var(--surface-sunken)",
+            color: running ? "white" : "var(--muted)",
+          }}
+        >
+          {progress}%
+        </span>
       </header>
 
-      {/* aria-live so a screen reader hears progress instead of silence. */}
+      {/* aria-live so a screen reader hears progress rather than silence. */}
       <ol
-        className="max-h-72 overflow-y-auto px-4 py-2"
+        className="max-h-80 space-y-0.5 overflow-y-auto p-2"
         aria-live="polite"
         aria-relevant="additions"
       >
         {events.map((event, index) => (
-          <TraceRow key={`${event.node}-${index}`} event={event} />
+          <Row key={`${event.node}-${index}`} event={event} />
         ))}
         {running && !events.length && (
-          <li className="py-2 text-sm text-muted">Starting…</li>
+          <li className="px-2 py-2 font-mono text-xs text-muted">Starting…</li>
         )}
         <div ref={endRef} />
       </ol>
+
+      {retries > 0 && (
+        <footer className="border-t px-4 py-2.5">
+          <span
+            className="font-mono text-2xs tracking-wider uppercase"
+            style={{ color: "var(--color-risk-medium)" }}
+            title="The agent rejected its own intermediate result and retried"
+          >
+            {retries} self-correction{retries === 1 ? "" : "s"}
+          </span>
+        </footer>
+      )}
     </section>
   );
 }

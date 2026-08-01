@@ -88,9 +88,36 @@ def _normalise(text: str) -> str:
     text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
     # Drop page furniture: a line that is only a number.
     text = re.sub(r"\n\s*\d+\s*\n", "\n", text)
+    # Collapse table-of-contents dot leaders. "Notice .......... 12" survives
+    # extraction as a run of periods that reads as sentence boundaries to the
+    # chunker and as noise to full-text search.
+    text = re.sub(r"[.·…]{3,}", " ", text)
+    text = re.sub(r"(?:\n\s*\.\s*){2,}\n", "\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+#: A chunk needs this many letters to be worth retrieving. Below it, the span
+#: is a table row, a page header, or a contents entry — text that matches
+#: queries on stray words while establishing nothing a citation could rest on.
+MIN_ALPHA_CHARS = 80
+
+
+def _is_substantive(text: str) -> bool:
+    """Whether a chunk carries enough prose to be citable.
+
+    Statute PDFs contain contents pages and financial tables that extract as
+    fragments like "3. \\n. \\n. \\nTotal". They pollute retrieval and, worse,
+    look like a broken product when a reviewer opens the source behind a
+    citation.
+    """
+    letters = sum(1 for character in text if character.isalpha())
+    if letters < MIN_ALPHA_CHARS:
+        return False
+
+    # Mostly-punctuation spans clear the letter count only when very long.
+    return letters / max(len(text), 1) >= 0.45
 
 
 def _chapter_at(text: str, position: int) -> str | None:
@@ -241,6 +268,11 @@ def chunk_legal_text(
         # Drop fragments too small to carry meaning (stray headings, page noise)
         # unless they are the only thing we have.
         if estimate_tokens(content) < min_tokens and len(spans) > 1:
+            continue
+        # Same reasoning for contents pages and table rows: they clear the
+        # token budget but carry no citable prose. Kept when nothing else
+        # survives, so a short document never ingests as empty.
+        if not _is_substantive(content) and len(spans) > 1:
             continue
         meta: dict[str, Any] = {}
         if span.chapter:

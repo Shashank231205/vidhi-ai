@@ -4,84 +4,82 @@ import type { Risk, Stance } from "@/lib/api";
 /**
  * Shared primitives.
  *
- * Every status indicator pairs colour with a text label. Risk and stance are
- * the load-bearing signals in this UI, and colour alone fails for roughly one
- * in twelve men — and in greyscale print, which legal work still produces.
+ * Every verdict indicator pairs colour with a text label. Risk and stance are
+ * the load-bearing signals here, and colour alone fails for roughly one in
+ * twelve men — and in greyscale, which legal work still prints in.
  */
 
-const RISK_STYLES: Record<Risk, { bg: string; fg: string; label: string }> = {
-  high: { bg: "var(--risk-high-bg)", fg: "var(--color-risk-high)", label: "High risk" },
-  medium: {
-    bg: "var(--risk-medium-bg)",
-    fg: "var(--color-risk-medium)",
-    label: "Medium risk",
-  },
-  low: { bg: "var(--risk-low-bg)", fg: "var(--color-risk-low)", label: "Low risk" },
+const RISK: Record<Risk, { label: string; hue: string }> = {
+  high: { label: "High risk", hue: "var(--color-risk-high)" },
+  medium: { label: "Medium risk", hue: "var(--color-risk-medium)" },
+  low: { label: "Low risk", hue: "var(--color-risk-low)" },
 };
 
 export function RiskBadge({ risk, source }: { risk: Risk; source?: string }) {
-  const style = RISK_STYLES[risk];
+  const { label, hue } = RISK[risk];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold tracking-wide uppercase"
-      style={{ background: style.bg, color: style.fg }}
+      className="inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-2xs font-medium tracking-wider uppercase"
+      style={{
+        color: risk === "high" ? "white" : hue,
+        background:
+          risk === "high" ? hue : `color-mix(in oklch, ${hue} 12%, transparent)`,
+      }}
     >
-      <span
-        aria-hidden
-        className="size-1.5 rounded-full"
-        style={{ background: style.fg }}
-      />
-      {style.label}
-      {/* Surfaced because the classifier and the LLM disagree sometimes, and
-          a reviewer should know which one is speaking. */}
+      {label}
+      {/* Surfaced because the classifier and the LLM sometimes disagree, and a
+          reviewer should know which one produced this level. */}
       {source?.startsWith("classifier") && (
-        <span className="font-normal normal-case opacity-70">· model</span>
+        <span className="font-normal opacity-70">· model</span>
       )}
     </span>
   );
 }
 
-const STANCE_STYLES: Record<Stance, { bg: string; fg: string; label: string }> = {
-  supports: {
-    bg: "var(--supports-bg)",
-    fg: "var(--color-supports)",
-    label: "Supports",
-  },
-  undermines: {
-    bg: "var(--undermines-bg)",
-    fg: "var(--color-undermines)",
-    label: "Undermines",
-  },
-  neutral: {
-    bg: "var(--surface-sunken)",
-    fg: "var(--muted)",
-    label: "Neutral",
-  },
+const STANCE: Record<Stance, { label: string; hue: string }> = {
+  supports: { label: "Supports", hue: "var(--color-supports)" },
+  undermines: { label: "Undermines", hue: "var(--color-undermines)" },
+  neutral: { label: "Neutral", hue: "var(--muted)" },
 };
 
-export function StanceBadge({
-  stance,
-  confidence,
-}: {
-  stance: Stance;
-  confidence?: number;
-}) {
-  const style = STANCE_STYLES[stance];
+export function StanceBadge({ stance }: { stance: Stance }) {
+  const { label, hue } = STANCE[stance];
+  const solid = stance !== "neutral";
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold tracking-wide uppercase"
-      style={{ background: style.bg, color: style.fg }}
+      className="inline-flex items-center rounded px-2.5 py-1 font-mono text-2xs font-medium tracking-wider uppercase"
+      style={{
+        color: solid ? "white" : hue,
+        background: solid ? hue : "var(--surface-sunken)",
+      }}
     >
-      <span
+      {label}
+    </span>
+  );
+}
+
+/** The verification mark. Used only where a citation actually passed the check. */
+export function VerifiedMark({ label }: { label?: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      style={{ color: "var(--color-verified)" }}
+      title="Quote matched against the retrieved source text"
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         aria-hidden
-        className="size-1.5 rounded-full"
-        style={{ background: style.fg }}
-      />
-      {style.label}
-      {confidence !== undefined && (
-        <span className="font-normal normal-case opacity-70">
-          · {Math.round(confidence * 100)}%
-        </span>
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+      </svg>
+      {label && (
+        <span className="font-mono text-2xs tracking-wider uppercase">{label}</span>
       )}
     </span>
   );
@@ -95,13 +93,13 @@ export function Button({
   variant?: "primary" | "secondary" | "ghost";
 }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex items-center justify-center gap-2 rounded px-4 py-2 text-sm transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45";
   const variants = {
     primary:
-      "bg-[var(--color-brand-600)] text-white hover:bg-[var(--color-brand-700)]",
+      "bg-[var(--color-gold-600)] text-white hover:bg-[var(--color-gold-700)]",
     secondary:
-      "border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-sunken)]",
-    ghost: "hover:bg-[var(--surface-sunken)]",
+      "border border-[var(--border-strong)] bg-[var(--surface)] hover:bg-[var(--surface-sunken)]",
+    ghost: "text-muted hover:text-[var(--foreground)]",
   };
   return (
     <button className={`${base} ${variants[variant]}`} {...props}>
@@ -110,20 +108,31 @@ export function Button({
   );
 }
 
-export function Card({
+/** A small uppercase monospace label. The main texture of this design. */
+export function Label({ children }: { children: ReactNode }) {
+  return <p className="label-mono">{children}</p>;
+}
+
+export function Panel({
   children,
   className = "",
+  sunken = false,
 }: {
   children: ReactNode;
   className?: string;
+  sunken?: boolean;
 }) {
-  return <div className={`surface p-5 ${className}`}>{children}</div>;
+  return (
+    <div
+      className={`rounded-[var(--radius-card)] border ${className}`}
+      style={{ background: sunken ? "var(--surface-sunken)" : "var(--surface)" }}
+    >
+      {children}
+    </div>
+  );
 }
 
-/**
- * Empty states carry an instruction, not just an absence. A blank panel makes
- * the user wonder whether something failed.
- */
+/** Empty states carry an instruction. A blank panel reads as a failure. */
 export function EmptyState({
   title,
   description,
@@ -134,37 +143,40 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
-      <p className="text-lg font-medium">{title}</p>
-      <p className="max-w-md text-sm text-muted">{description}</p>
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+      <h3 className="font-serif text-xl">{title}</h3>
+      <p className="max-w-sm text-sm text-muted">{description}</p>
       {action}
     </div>
   );
 }
 
 export function ErrorState({
+  title = "Something went wrong",
   message,
   onRetry,
 }: {
+  title?: string;
   message: string;
   onRetry?: () => void;
 }) {
   return (
     <div
       role="alert"
-      className="flex flex-col items-start gap-3 rounded-lg border p-4"
+      className="rounded-[var(--radius-card)] border p-5"
       style={{
-        background: "var(--risk-high-bg)",
         borderColor: "var(--color-risk-high)",
+        background: "color-mix(in oklch, var(--color-risk-high) 7%, transparent)",
       }}
     >
-      <p className="text-sm" style={{ color: "var(--color-risk-high)" }}>
-        {message}
-      </p>
+      <h3 className="font-serif text-lg">{title}</h3>
+      <p className="mt-1.5 text-sm text-muted">{message}</p>
       {onRetry && (
-        <Button variant="secondary" onClick={onRetry}>
-          Try again
-        </Button>
+        <div className="mt-4">
+          <Button variant="secondary" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -172,28 +184,4 @@ export function ErrorState({
 
 export function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`skeleton rounded ${className}`} aria-hidden />;
-}
-
-/**
- * A cited source. Clicking is not wired to a hover-card yet; the citation text
- * itself is the guarantee, since it is only ever rendered for findings whose
- * quote the backend verified against the retrieved chunk.
- */
-export function Citation({ children }: { children: ReactNode }) {
-  return (
-    <cite className="text-xs font-medium not-italic text-[var(--color-brand-600)]">
-      {children}
-    </cite>
-  );
-}
-
-export function Quote({ children }: { children: ReactNode }) {
-  return (
-    <blockquote
-      className="legal-text border-l-2 py-1 pl-3 text-muted"
-      style={{ borderColor: "var(--color-brand-300)" }}
-    >
-      {children}
-    </blockquote>
-  );
 }

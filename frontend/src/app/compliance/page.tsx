@@ -2,86 +2,81 @@
 
 import { useCallback, useRef, useState } from "react";
 import { AgentTrace } from "@/components/AgentTrace";
+import { SourceDrawer } from "@/components/SourceDrawer";
 import {
   Button,
-  Citation,
   EmptyState,
   ErrorState,
-  Quote,
+  Label,
   RiskBadge,
+  VerifiedMark,
 } from "@/components/ui";
 import { ApiError, api, type AuditResult, type Finding, type Risk } from "@/lib/api";
 import { useAgentStream } from "@/lib/useAgentStream";
 
 const SAMPLE = `3. Data Collection. The Company may collect, store and process any and all personal data of the User, including sensitive personal data, for any purpose it deems fit, without providing notice to the User and without obtaining separate consent.
 
-4. Data Retention. The Company shall retain all User personal data indefinitely, including after the User terminates this Agreement or withdraws consent.
+4. Retention & Deletion. Upon termination, the Company may retain all User personal data for as long as reasonably required for its internal business purposes.
 
 5. Liability. The User agrees to indemnify the Company against all claims without limitation, and this obligation shall survive termination.`;
 
 const RISK_ORDER: Record<Risk, number> = { high: 0, medium: 1, low: 2 };
 
-function FindingCard({ finding }: { finding: Finding }) {
+function FindingCard({
+  finding,
+  onOpenSource,
+}: {
+  finding: Finding;
+  onOpenSource: () => void;
+}) {
   return (
-    <article className="surface animate-in p-5">
+    <article
+      className="animate-in rounded-[var(--radius-card)] border p-5"
+      style={{ background: "var(--surface)" }}
+    >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-medium">{finding.issue}</h3>
-          {finding.clause_label && (
-            <p className="mt-0.5 text-xs text-muted">{finding.clause_label}</p>
-          )}
+          {finding.clause_label && <Label>{finding.clause_label}</Label>}
+          <h3 className="mt-1.5 font-serif text-xl leading-tight">{finding.issue}</h3>
         </div>
         <RiskBadge risk={finding.risk} source={finding.risk_source} />
       </header>
 
-      <p className="mt-3 text-sm">{finding.explanation}</p>
+      <p className="mt-3 text-sm text-muted">{finding.explanation}</p>
 
-      <div className="mt-4 space-y-1.5">
-        <Citation>{finding.citation}</Citation>
-        <Quote>“{finding.quote}”</Quote>
+      <div
+        className="mt-5 rounded-[var(--radius-card)] border p-4"
+        style={{ background: "var(--surface-sunken)" }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <Label>{finding.citation}</Label>
+          <VerifiedMark />
+        </div>
+
+        <blockquote
+          className="legal-text mt-3 border-l-2 pl-4"
+          style={{ borderColor: "var(--accent)" }}
+        >
+          “{finding.quote}”
+        </blockquote>
+
+        {/* The whole guarantee in one control: read the provision this was
+            checked against, rather than taking the summary on trust. */}
+        <button
+          onClick={onOpenSource}
+          className="mt-4 flex w-full items-center justify-between rounded border px-3 py-2.5 font-mono text-2xs tracking-wider uppercase transition-colors hover:border-[var(--border-strong)]"
+          style={{ background: "var(--surface)" }}
+        >
+          Open verified source
+          <span aria-hidden>→</span>
+        </button>
       </div>
 
-      <div className="mt-4 rounded-lg p-3" style={{ background: "var(--surface-sunken)" }}>
-        <p className="text-2xs font-semibold tracking-wide uppercase text-muted">
-          Suggested fix
-        </p>
-        <p className="mt-1 text-sm">{finding.suggested_fix}</p>
+      <div className="mt-5">
+        <Label>Recommended redline</Label>
+        <p className="mt-1.5 text-sm">{finding.suggested_fix}</p>
       </div>
     </article>
-  );
-}
-
-function Summary({ result }: { result: AuditResult }) {
-  const counts = result.risk_summary;
-  return (
-    <div className="surface flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 text-sm">
-      <span>
-        <strong>{result.findings.length}</strong> finding
-        {result.findings.length === 1 ? "" : "s"} across{" "}
-        <strong>{result.clauses_reviewed}</strong> clause
-        {result.clauses_reviewed === 1 ? "" : "s"}
-      </span>
-      <span className="flex gap-3 text-xs">
-        {(["high", "medium", "low"] as const).map(
-          (risk) =>
-            counts[risk] > 0 && (
-              <span key={risk} style={{ color: `var(--color-risk-${risk})` }}>
-                {counts[risk]} {risk}
-              </span>
-            ),
-        )}
-      </span>
-      {/* Never hidden: a discarded finding is one the verifier could not
-          ground, and concealing that would undermine the guarantee. */}
-      {result.discarded_findings > 0 && (
-        <span className="text-xs text-muted" title="Citations that could not be verified against the retrieved text">
-          {result.discarded_findings} discarded as unverifiable
-        </span>
-      )}
-      <span className="ml-auto font-mono text-2xs text-muted tabular-nums">
-        {(result.elapsed_ms / 1000).toFixed(1)}s
-      </span>
-    </div>
   );
 }
 
@@ -90,6 +85,9 @@ export default function CompliancePage() {
   const [title, setTitle] = useState("Pasted contract");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [openSource, setOpenSource] = useState<{ id: string; quote: string } | null>(
+    null,
+  );
   const fileInput = useRef<HTMLInputElement>(null);
 
   const { events, result, running, error, start, cancel } =
@@ -98,8 +96,8 @@ export default function CompliancePage() {
   const runAudit = useCallback(() => {
     if (text.trim().length < 20) return;
     setUploadError(null);
-    // Capped for the demo: a long contract is hundreds of LLM calls and will
-    // meet the provider's rate limit long before it finishes.
+    // Capped for the demo: a full contract is hundreds of LLM calls and meets
+    // the provider's rate limit long before it finishes.
     void start({ text, title, max_clauses: 8 });
   }, [start, text, title]);
 
@@ -107,8 +105,6 @@ export default function CompliancePage() {
     setUploading(true);
     setUploadError(null);
     try {
-      // Uploading extracts and indexes the PDF; the audit then runs over the
-      // extracted text like any pasted contract.
       const uploaded = await api.upload(file, "contract");
       const search = await api.search(uploaded.title, 1);
       setTitle(uploaded.title);
@@ -125,116 +121,204 @@ export default function CompliancePage() {
     }
   };
 
-  const sorted = result
-    ? [...result.findings].sort(
-        (a, b) => RISK_ORDER[a.risk] - RISK_ORDER[b.risk],
-      )
+  const findings = result
+    ? [...result.findings].sort((a, b) => RISK_ORDER[a.risk] - RISK_ORDER[b.risk])
     : [];
 
+  const started = running || result !== null || error !== null;
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-      <section className="space-y-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">ComplianceGuard</h1>
-          <p className="mt-1 text-sm text-muted">
-            Paste a contract or upload a PDF. Each clause is audited against the
-            ingested Indian statutes.
-          </p>
-        </div>
+    <>
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+        {/* Intake */}
+        <section className="space-y-5">
+          <div>
+            <Label>Start a contract audit</Label>
+            <h1 className="mt-3 text-2xl leading-tight">
+              Bring the agreement into evidence.
+            </h1>
+            <p className="mt-2 text-sm text-muted">
+              VidhiAI maps clauses to statutory text, then exposes the verified
+              source behind every finding.
+            </p>
+          </div>
 
-        <label className="block">
-          <span className="text-xs font-medium">Document title</span>
-          <input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            className="mt-1.5 w-full rounded-lg border bg-[var(--surface)] px-3 py-2 text-sm"
-          />
-        </label>
+          <label className="block">
+            <Label>Document title</Label>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              className="mt-1.5 w-full rounded border px-3 py-2 text-sm"
+              style={{ background: "var(--surface)" }}
+            />
+          </label>
 
-        <label className="block">
-          <span className="text-xs font-medium">Contract text</span>
-          <textarea
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            rows={14}
-            placeholder="Paste the clauses to review…"
-            className="legal-text mt-1.5 w-full resize-y rounded-lg border bg-[var(--surface)] px-3 py-2"
-          />
-        </label>
+          <label className="block">
+            <Label>Contract text</Label>
+            <textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              rows={13}
+              placeholder="Paste the clauses to review…"
+              className="legal-text mt-1.5 w-full resize-y rounded border px-3.5 py-3"
+              style={{ background: "var(--surface)" }}
+            />
+          </label>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={runAudit} disabled={running || text.trim().length < 20}>
-            {running ? "Auditing…" : "Run audit"}
-          </Button>
-          {running && (
-            <Button variant="secondary" onClick={cancel}>
-              Cancel
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={runAudit} disabled={running || text.trim().length < 20}>
+              {running ? "Auditing…" : "Run audit"}
             </Button>
+            {running && (
+              <Button variant="secondary" onClick={cancel}>
+                Cancel
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading || running}
+            >
+              {uploading ? "Reading…" : "Upload PDF"}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setText(SAMPLE);
+                setTitle("Mutual NDA · Aranya");
+              }}
+              disabled={running}
+            >
+              Use sample
+            </Button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/pdf"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void onFile(file);
+                event.target.value = "";
+              }}
+            />
+          </div>
+
+          {uploadError && <ErrorState message={uploadError} />}
+
+          {!started && (
+            <div className="border-t pt-5">
+              <Label>How this audit holds up</Label>
+              <ol className="mt-3 space-y-2.5 text-sm">
+                {[
+                  "Identify obligations and sensitive-data clauses.",
+                  "Run a visible Retrieve → Critic → Analyze → Verify trace.",
+                  "Open each statutory source before relying on it.",
+                ].map((step, index) => (
+                  <li key={step} className="flex gap-3">
+                    <span
+                      className="font-mono text-2xs"
+                      style={{ color: "var(--accent)" }}
+                    >
+                      0{index + 1}
+                    </span>
+                    <span className="text-muted">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
-          <Button
-            variant="secondary"
-            onClick={() => fileInput.current?.click()}
-            disabled={uploading || running}
-          >
-            {uploading ? "Reading…" : "Upload PDF"}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setText(SAMPLE);
-              setTitle("Sample vendor agreement");
-            }}
-            disabled={running}
-          >
-            Use sample
-          </Button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="application/pdf"
-            className="sr-only"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void onFile(file);
-              event.target.value = "";
-            }}
-          />
-        </div>
+        </section>
 
-        {uploadError && <ErrorState message={uploadError} />}
-      </section>
+        {/* Trace and findings */}
+        <section className="space-y-5">
+          <AgentTrace events={events} running={running} />
 
-      <section className="space-y-4">
-        <AgentTrace events={events} running={running} />
-
-        {error && <ErrorState message={error} onRetry={runAudit} />}
-
-        {result && <Summary result={result} />}
-
-        {result && sorted.length === 0 && (
-          <div className="surface">
-            <EmptyState
-              title="No compliance issues found"
-              description="No clause conflicted with the statutes retrieved for it. That is not a clean bill of health — it reflects the Acts currently ingested."
+          {error && (
+            <ErrorState
+              title="We could not complete the audit"
+              message={error}
+              onRetry={runAudit}
             />
-          </div>
-        )}
+          )}
 
-        <div className="space-y-3">
-          {sorted.map((finding, index) => (
-            <FindingCard key={`${finding.chunk_id}-${index}`} finding={finding} />
-          ))}
-        </div>
+          {result && (
+            <div
+              className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-[var(--radius-card)] border px-5 py-4"
+              style={{ background: "var(--surface-sunken)" }}
+            >
+              <span className="font-serif text-lg">
+                {findings.length === 0
+                  ? "No material findings"
+                  : `${findings.length} material finding${findings.length === 1 ? "" : "s"}`}
+              </span>
 
-        {!result && !running && !error && (
-          <div className="surface">
-            <EmptyState
-              title="No audit yet"
-              description="Paste a contract and run an audit. The reasoning trace appears here as the agent works, including when it corrects itself."
-            />
+              <span className="flex gap-3 font-mono text-2xs tracking-wider uppercase">
+                {(["high", "medium", "low"] as const).map(
+                  (risk) =>
+                    result.risk_summary[risk] > 0 && (
+                      <span key={risk} style={{ color: `var(--color-risk-${risk})` }}>
+                        {result.risk_summary[risk]} {risk}
+                      </span>
+                    ),
+                )}
+              </span>
+
+              {/* Never hidden: a discarded finding is one the verifier could
+                  not ground, and concealing it would undo the guarantee. */}
+              {result.discarded_findings > 0 && (
+                <span
+                  className="font-mono text-2xs text-muted"
+                  title="Citations that could not be matched to the retrieved text"
+                >
+                  {result.discarded_findings} discarded as unverifiable
+                </span>
+              )}
+
+              <span className="ml-auto font-mono text-2xs tabular-nums text-muted">
+                {(result.elapsed_ms / 1000).toFixed(1)}s ·{" "}
+                {result.clauses_reviewed} clauses
+              </span>
+            </div>
+          )}
+
+          {result && findings.length === 0 && (
+            <div className="rounded-[var(--radius-card)] border">
+              <EmptyState
+                title="No conflicts found"
+                description="No clause conflicted with the statutes retrieved for it. That reflects the Acts currently ingested, not a clean bill of health."
+              />
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {findings.map((finding, index) => (
+              <FindingCard
+                key={`${finding.chunk_id}-${index}`}
+                finding={finding}
+                onOpenSource={() =>
+                  setOpenSource({ id: finding.chunk_id, quote: finding.quote })
+                }
+              />
+            ))}
           </div>
-        )}
-      </section>
-    </div>
+
+          {!started && (
+            <div className="rounded-[var(--radius-card)] border">
+              <EmptyState
+                title="No audit yet"
+                description="Paste a contract and run an audit. The reasoning trace appears here as the agent works, including when it corrects itself."
+              />
+            </div>
+          )}
+        </section>
+      </div>
+
+      <SourceDrawer
+        chunkId={openSource?.id ?? null}
+        quote={openSource?.quote}
+        onClose={() => setOpenSource(null)}
+      />
+    </>
   );
 }

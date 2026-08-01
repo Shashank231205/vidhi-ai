@@ -106,6 +106,20 @@ export interface SearchHit {
   matched_by: string[];
 }
 
+/** The exact source text behind a citation, with its provenance. */
+export interface ChunkDetail {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  source_ref: string;
+  source_url: string | null;
+  label: string | null;
+  content: string;
+  ordinal: number;
+  content_hash: string;
+  meta: Record<string, unknown>;
+}
+
 export interface DocumentSummary {
   id: string;
   kind: string;
@@ -175,6 +189,10 @@ export const api = {
   health: () => request<HealthReport>("/health"),
 
   ready: () => request<{ ready: boolean; database: boolean }>("/ready"),
+
+  /** Resolve a citation to the chunk its quote was verified against. */
+  chunk: (chunkId: string) =>
+    request<ChunkDetail>(`/documents/chunks/${encodeURIComponent(chunkId)}`),
 
   documents: (kind?: string) =>
     request<DocumentSummary[]>(

@@ -1,18 +1,37 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Instrument_Serif, Inter } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
-const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
-const mono = JetBrains_Mono({
+/**
+ * Three faces, each doing one job:
+ *
+ * - **Instrument Serif** for display. High-contrast and editorial — it reads as
+ *   a document rather than a dashboard, which is the point.
+ * - **Inter** for interface prose. Neutral at small sizes where the serif's
+ *   contrast becomes noise.
+ * - **IBM Plex Mono** for anything the system asserts about its own work:
+ *   chunk ids, hashes, trace events. Monospace is the signal that you are
+ *   looking at machinery rather than at law.
+ */
+const display = Instrument_Serif({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: "400",
+});
+
+const body = Inter({ variable: "--font-body", subsets: ["latin"] });
+
+const mono = IBM_Plex_Mono({
   variable: "--font-mono-stack",
   subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "VidhiAI — AI legal platform for Indian law",
+  title: "VidhiAI — grounded legal reasoning for Indian law",
   description:
-    "Audit contracts against Indian statutes and research case law, with every citation verified against its source.",
+    "Audit contracts against Indian statutes and research case law. Every citation is verified against its source text before it is shown.",
 };
 
 /**
@@ -38,7 +57,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${mono.variable} h-full`}
+      className={`${display.variable} ${body.variable} ${mono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>
