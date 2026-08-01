@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from api import __version__
 from api.documents import router as documents_router
 from api.routes import router as api_router
+from caselens.routes import router as caselens_router
 from compliance.routes import router as compliance_router
 from core.cache import Cache
 from core.config import Settings, get_settings
@@ -148,4 +149,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_router)
     app.include_router(documents_router)
     app.include_router(compliance_router)
+    app.include_router(caselens_router)
     return app
