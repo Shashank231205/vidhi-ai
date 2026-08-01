@@ -19,6 +19,19 @@ class Environment(StrEnum):
     PRODUCTION = "production"
 
 
+class EmbeddingBackend(StrEnum):
+    """Where embeddings are computed.
+
+    LOCAL runs the model in-process: ~30ms per query versus ~500ms-1.3s via the
+    hosted API, with no cold starts or rate limits. REMOTE keeps the process
+    small, for deployment targets where a 2GB model is not welcome. Both use
+    the same weights, so a corpus embedded by one is valid for the other.
+    """
+
+    LOCAL = "local"
+    REMOTE = "remote"
+
+
 class LLMProvider(StrEnum):
     """Providers are OpenAI-compatible, so one client covers all of them."""
 
@@ -71,7 +84,9 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
 
     # --- Embeddings + classifiers (HuggingFace Inference API) ---
-    hf_api_token: SecretStr
+    embedding_backend: EmbeddingBackend = EmbeddingBackend.LOCAL
+    #: Only required when embedding_backend is REMOTE.
+    hf_api_token: SecretStr = SecretStr("")
     embedding_model: str = "BAAI/bge-m3"
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 32

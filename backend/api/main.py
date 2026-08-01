@@ -17,9 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api import __version__
+from api.documents import router as documents_router
 from api.routes import router as api_router
+from core.cache import Cache
 from core.config import Settings, get_settings
 from core.db import Database
+from core.embeddings import EmbeddingService
 from core.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -48,6 +51,22 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
         database = Database(settings)
         app.state.db = database
 
+        # One embedding service per process: with the local backend it holds
+        # the model in memory, so constructing it per request would reload
+        # 2GB of weights every time.
+        cache = Cache(settings)
+        embeddings = EmbeddingService(settings, cache=cache)
+        app.state.cache = cache
+        app.state.embeddings = embeddings
+
+        # Load the model now rather than making the first user wait for it.
+        # Failure here is not fatal: retrieval degrades to lexical-only and
+        # /ready reports it, which beats refusing to start.
+        try:
+            await embeddings.warm()
+        except Exception as exc:
+            log.warning("embedding_warmup_failed", error=str(exc))
+
         log.info(
             "startup",
             version=__version__,
@@ -57,6 +76,8 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
         try:
             yield
         finally:
+            await embeddings.close()
+            await cache.close()
             await database.dispose()
             log.info("shutdown")
 
@@ -119,4 +140,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Domain routers (compliance, caselens) mount here in Phases 3 and 5.
     app.include_router(api_router)
+    app.include_router(documents_router)
     return app

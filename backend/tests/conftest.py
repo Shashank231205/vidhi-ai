@@ -16,7 +16,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.main import create_app
-from core.config import Environment, Settings
+from core.config import EmbeddingBackend, Environment, Settings
+from core.embeddings import EmbeddingBackendProtocol, Vector
 
 
 def build_settings(**overrides: object) -> Settings:
@@ -36,6 +37,9 @@ def build_settings(**overrides: object) -> Settings:
         "groq_api_key": "test-groq-key",
         "cerebras_api_key": None,
         "openrouter_api_key": None,
+        # Unit tests must never load the local model: it costs seconds per
+        # test and gigabytes of memory. Integration tests use real settings.
+        "embedding_backend": EmbeddingBackend.REMOTE,
     }
     return Settings(**{**defaults, **overrides})  # type: ignore[arg-type]
 
@@ -43,6 +47,22 @@ def build_settings(**overrides: object) -> Settings:
 @pytest.fixture
 def settings() -> Settings:
     return build_settings()
+
+
+class StubEmbeddings(EmbeddingBackendProtocol):
+    """Deterministic vectors, no model and no network.
+
+    Unit tests care that wiring and shapes are right, not that BGE-M3 produces
+    good embeddings — that is what the retrieval eval measures.
+    """
+
+    def __init__(self, dimensions: int = 1024) -> None:
+        self.dimensions = dimensions
+        self.calls: list[list[str]] = []
+
+    async def encode(self, texts: list[str]) -> list[Vector]:
+        self.calls.append(texts)
+        return [[((hash(t) >> i) % 100) / 100.0 for i in range(self.dimensions)] for t in texts]
 
 
 @pytest.fixture
@@ -105,3 +125,46 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture(scope="session")
+def dpdp_pdf() -> bytes:
+    """A small PDF that genuinely carries a text layer.
+
+    Built by hand rather than downloaded: the test suite must not depend on a
+    network round trip, and pypdf's blank pages have no extractable text.
+    """
+    body = (
+        "5. Notice. Every request made to a Data Principal for consent shall be "
+        "accompanied by a notice informing her of the personal data and the "
+        "purpose of processing. The Data Fiduciary shall provide the notice in "
+        "clear and plain language."
+    )
+    stream = f"BT /F1 11 Tf 40 700 Td ({body}) Tj ET".encode("latin-1")
+
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    ]
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n".encode() + obj + b"\nendobj\n"
+
+    xref_at = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    ).encode()
+    return bytes(out)

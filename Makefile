@@ -2,14 +2,17 @@
 BACKEND := backend
 UV := uv
 
-.PHONY: help install dev lint format typecheck test check clean
+.PHONY: help install hooks dev lint format typecheck test check clean ingest eval
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-install: ## Create the venv and install backend deps (incl. dev extras)
+install: hooks ## Create the venv, install deps, install git hooks
 	cd $(BACKEND) && $(UV) sync --extra dev
+
+hooks: ## Run CI's gates before every push instead of after
+	git config core.hooksPath .githooks
 
 dev: ## Run the API with reload on :8000
 	cd $(BACKEND) && $(UV) run uvicorn api.main:create_app --factory --reload --port 8000

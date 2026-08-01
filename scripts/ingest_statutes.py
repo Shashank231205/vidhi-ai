@@ -1,11 +1,13 @@
-"""Ingest Indian statutes into the corpus.
+"""Ingest Indian central Acts into the corpus.
 
-Sources are official government PDFs, fetched at run time rather than vendored:
-the corpus is reproducible from the script, and nothing large lands in git.
+Sources are official government PDFs (India Code and ministry sites), fetched
+at run time rather than vendored: the corpus is reproducible from this script
+and nothing large lands in git.
 
-    uv run python ../scripts/ingest_statutes.py            # all configured
-    uv run python ../scripts/ingest_statutes.py --only dpdp
-    uv run python ../scripts/ingest_statutes.py --force    # re-chunk unchanged
+    uv run python ../scripts/ingest_statutes.py                 # priority 1
+    uv run python ../scripts/ingest_statutes.py --all           # everything
+    uv run python ../scripts/ingest_statutes.py --only dpdp it
+    uv run python ../scripts/ingest_statutes.py --list
 """
 
 from __future__ import annotations
@@ -13,12 +15,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from dataclasses import dataclass
-from io import BytesIO
+import time
 from pathlib import Path
 
 import httpx
-from pypdf import PdfReader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
@@ -26,105 +26,95 @@ from core.cache import Cache  # noqa: E402
 from core.config import get_settings  # noqa: E402
 from core.db import Database, DocumentKind  # noqa: E402
 from core.embeddings import EmbeddingService  # noqa: E402
+from core.ingestion.fetch import fetch_statute_text  # noqa: E402
 from core.ingestion.pipeline import IngestionPipeline  # noqa: E402
+from core.ingestion.sources import BY_KEY, STATUTES, by_priority  # noqa: E402
 from core.logging import configure_logging, get_logger  # noqa: E402
 
 log = get_logger("ingest")
 
 
-@dataclass(frozen=True, slots=True)
-class StatuteSource:
-    key: str
-    title: str
-    source_ref: str
-    url: str
-    year: int
-    act_number: str
-
-
-STATUTES: tuple[StatuteSource, ...] = (
-    StatuteSource(
-        key="dpdp",
-        title="Digital Personal Data Protection Act, 2023",
-        source_ref="DPDP-2023",
-        url="https://www.meity.gov.in/static/uploads/2024/06/2bf1f0e9f04e6fb4f8fef35e82c42aa5.pdf",
-        year=2023,
-        act_number="22 of 2023",
-    ),
-)
-
-
-async def fetch_pdf_text(url: str) -> str:
-    """Download a PDF and extract its text."""
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-
-    reader = PdfReader(BytesIO(response.content))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    text = "\n".join(pages).strip()
-    if not text:
-        raise RuntimeError(f"no extractable text in {url} (scanned image?)")
-    return text
-
-
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", help="ingest a single statute by key")
+    parser.add_argument("--only", nargs="+", metavar="KEY", help="ingest these Acts")
+    parser.add_argument("--all", action="store_true", help="ingest every Act")
     parser.add_argument(
-        "--force", action="store_true", help="re-chunk even if unchanged"
+        "--priority", type=int, default=1, help="ingest Acts up to this priority"
     )
-    parser.add_argument(
-        "--no-embed", action="store_true", help="skip embeddings (text only)"
-    )
+    parser.add_argument("--list", action="store_true", help="list Acts and exit")
+    parser.add_argument("--force", action="store_true", help="re-chunk unchanged Acts")
+    parser.add_argument("--no-embed", action="store_true", help="skip embeddings")
     args = parser.parse_args()
+
+    if args.list:
+        print(f"{'key':16} {'priority':>8}  {'domain':22} title")
+        for source in sorted(STATUTES, key=lambda s: (s.priority, s.key)):
+            print(
+                f"{source.key:16} {source.priority:>8}  "
+                f"{source.domain.value:22} {source.title}"
+            )
+        return 0
+
+    if args.only:
+        unknown = [k for k in args.only if k not in BY_KEY]
+        if unknown:
+            print(f"unknown: {', '.join(unknown)}", file=sys.stderr)
+            print(f"available: {', '.join(sorted(BY_KEY))}", file=sys.stderr)
+            return 1
+        selected = [BY_KEY[k] for k in args.only]
+    else:
+        selected = by_priority(99 if args.all else args.priority)
 
     settings = get_settings()
     configure_logging(settings)
-
-    selected = [s for s in STATUTES if not args.only or s.key == args.only]
-    if not selected:
-        available = ", ".join(s.key for s in STATUTES)
-        print(f"unknown statute '{args.only}'. Available: {available}", file=sys.stderr)
-        return 1
 
     database = Database(settings)
     cache = Cache(settings)
     embeddings = EmbeddingService(settings, cache=cache)
     pipeline = IngestionPipeline(database, embeddings)
 
-    failures = 0
-    try:
-        for statute in selected:
-            print(f"→ {statute.title}")
-            try:
-                text = await fetch_pdf_text(statute.url)
-                print(f"  fetched {len(text):,} characters")
+    print(f"Ingesting {len(selected)} Act(s) with {settings.embedding_backend} embeddings\n")
 
-                result = await pipeline.ingest(
-                    kind=DocumentKind.STATUTE,
-                    title=statute.title,
-                    source_ref=statute.source_ref,
-                    raw_text=text,
-                    source_url=statute.url,
-                    meta={
-                        "year": statute.year,
-                        "act_number": statute.act_number,
-                        "jurisdiction": "India",
-                    },
-                    force=args.force,
-                    embed=not args.no_embed,
-                )
-                print(f"  {result.summary}")
-            except Exception as exc:
-                failures += 1
-                log.exception("ingest_failed", statute=statute.key, error=str(exc))
-                print(f"  FAILED: {exc}", file=sys.stderr)
+    failures: list[str] = []
+    started = time.perf_counter()
+
+    try:
+        # Warm the model once rather than on the first Act's first batch.
+        if not args.no_embed:
+            await embeddings.warm()
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for source in selected:
+                print(f"→ {source.title}")
+                try:
+                    text, resolved_url = await fetch_statute_text(client, source)
+                    print(f"  fetched {len(text):,} characters")
+
+                    began = time.perf_counter()
+                    result = await pipeline.ingest(
+                        kind=DocumentKind.STATUTE,
+                        title=source.title,
+                        source_ref=source.source_ref,
+                        raw_text=text,
+                        source_url=resolved_url,
+                        meta=source.meta,
+                        force=args.force,
+                        embed=not args.no_embed,
+                    )
+                    print(f"  {result.summary} ({time.perf_counter() - began:.1f}s)")
+                except Exception as exc:
+                    failures.append(source.key)
+                    log.exception("ingest_failed", key=source.key, error=str(exc))
+                    print(f"  FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
     finally:
         await embeddings.close()
         await cache.close()
         await database.dispose()
 
+    elapsed = time.perf_counter() - started
+    print(f"\nDone in {elapsed:.1f}s — {len(selected) - len(failures)}/{len(selected)} ingested")
+    if failures:
+        print(f"Failed: {', '.join(failures)}", file=sys.stderr)
     return 1 if failures else 0
 
 
