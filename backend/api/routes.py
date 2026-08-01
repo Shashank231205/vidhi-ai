@@ -4,20 +4,24 @@ Every endpoint owned by the API layer itself lives here — one routes module pe
 package, so there is a single place to look for what a module exposes. Domain
 endpoints live in `compliance/routes.py` and `caselens/routes.py`.
 
-`/health` is a liveness probe: it answers from configuration alone and never
-touches the network, so a hosting platform can use it as a restart signal
-without a slow upstream turning into a restart loop. Dependency checks that do
-I/O arrive with the components themselves (DB in Phase 1, cache in Phase 2).
+Liveness and readiness are deliberately separate:
+
+- `/health` answers from configuration alone and never touches the network, so
+  a hosting platform can use it as a restart signal without a slow upstream
+  turning into a restart loop.
+- `/ready` actually probes the database, and is what a load balancer should
+  gate traffic on.
 """
 
 from enum import StrEnum
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 
 from api import __version__
 from core.config import Environment, Settings, get_settings
+from core.db import Database
 
 router = APIRouter(tags=["health"])
 
@@ -79,3 +83,29 @@ async def health(
         version=__version__,
         components=components,
     )
+
+
+class ReadyResponse(BaseModel):
+    ready: bool
+    database: bool
+
+
+def get_database(request: Request) -> Database:
+    """The engine created at startup; one per process."""
+    return request.app.state.db  # type: ignore[no-any-return]
+
+
+@router.get("/ready", response_model=ReadyResponse)
+async def ready(
+    response: Response,
+    database: Annotated[Database, Depends(get_database)],
+) -> ReadyResponse:
+    """Readiness: can this instance actually serve a request?
+
+    Returns 503 when the database is unreachable so a load balancer stops
+    sending traffic here, rather than reporting 200 and failing every query.
+    """
+    db_ok = await database.healthcheck()
+    if not db_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ReadyResponse(ready=db_ok, database=db_ok)

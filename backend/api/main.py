@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from api import __version__
 from api.routes import router as api_router
 from core.config import Settings, get_settings
+from core.db import Database
 from core.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -43,14 +44,21 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
                 checked=[p.value for p in settings.llm_provider_order],
             )
 
+        # One engine per process, shared by every request and disposed on exit.
+        database = Database(settings)
+        app.state.db = database
+
         log.info(
             "startup",
             version=__version__,
             environment=settings.environment,
             llm_providers=[p.value for p in providers],
         )
-        yield
-        log.info("shutdown")
+        try:
+            yield
+        finally:
+            await database.dispose()
+            log.info("shutdown")
 
     return lifespan
 
