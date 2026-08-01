@@ -58,10 +58,11 @@ USER user
 # Bake the embedding model in. This is the slow half of the build and the
 # reason a cold Space wakes in seconds rather than minutes.
 #
-# The repository ships the same 2.2GB weights twice — model.safetensors and
-# pytorch_model.bin — and a plain download fetches both, which is 2.2GB of
-# image and build time spent on a file that is never read. Only safetensors is
-# loaded, so the duplicate is removed once the download has completed.
+# Formats the loader never reads are pruned. pytorch_model.bin is deliberately
+# not among them, despite being a 2.2GB duplicate of model.safetensors:
+# sentence-transformers probes for it while loading, and deleting it sent the
+# container to huggingface.co on every boot, where startup hung indefinitely.
+# 2.2GB of image is the price of a container that starts.
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('BAAI/bge-m3')" \
@@ -69,7 +70,7 @@ SentenceTransformer('BAAI/bge-m3')" \
 import os, pathlib
 # Snapshot entries are symlinks into blobs/, so the blob has to be unlinked
 # through the link target — deleting the symlink alone frees nothing.
-unused = ("pytorch_model.bin", "model.onnx", "tf_model.h5", "flax_model.msgpack")
+unused = ("model.onnx", "tf_model.h5", "flax_model.msgpack")
 freed = 0
 for root, _, files in os.walk("/home/user/.cache/huggingface/hub"):
     for name in files:
@@ -83,6 +84,13 @@ for root, _, files in os.walk("/home/user/.cache/huggingface/hub"):
         entry.unlink(missing_ok=True)
 print(f"pruned {freed / 1e9:.2f} GB of duplicate weights")
 PRUNE
+
+# Offline only from here: the download above needed the network, but at runtime
+# the baked model must be used without revalidating against the Hub. Without
+# this the container reaches out on every boot and startup hangs — verified by
+# running the image with the flag absent.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
 
 WORKDIR /app/backend
 

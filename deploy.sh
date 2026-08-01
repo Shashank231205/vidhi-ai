@@ -32,8 +32,15 @@ if [[ "${1:-}" != "--update" ]]; then
   echo "Creating $APP (no immediate deploy, so secrets land first)"
   flyctl apps create "$APP" 2>/dev/null || echo "  app already exists, continuing"
 
-  # Only the keys the service actually reads. Anything else in .env — local
-  # paths, the classifier location — would be wrong in production.
+  # Only credentials. Deliberately excluded:
+  #
+  #   RISK_CLASSIFIER_MODEL — points at a local path, and .dockerignore keeps
+  #   the 268MB weights out of the image. Setting it would make every audit
+  #   attempt a load that cannot succeed; unset, the agent uses the LLM path,
+  #   which is also the baseline the classifier is measured against.
+  #
+  #   EMBEDDING_BACKEND — the image bakes the model in, so local is correct
+  #   and is already the default.
   WANTED=(
     DATABASE_URL UPSTASH_REDIS_URL UPSTASH_REDIS_TOKEN
     GROQ_API_KEY OPENROUTER_API_KEY CEREBRAS_API_KEY HF_API_TOKEN
