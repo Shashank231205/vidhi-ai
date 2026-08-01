@@ -101,8 +101,14 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024
     embedding_batch_size: int = 32
 
-    risk_classifier_model: str | None = None  # set in Phase 6
+    #: Local path or HF repo id. Unset means the LLM path is used, which is
+    #: also the baseline the classifier is measured against.
+    risk_classifier_model: str | None = None
     stance_classifier_model: str | None = None
+    #: Below this, the LLM's reasoned level stands: it at least saw the
+    #: statutory context, which the classifier does not.
+    risk_classifier_min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    stance_classifier_min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # --- Agent behaviour ---
     max_retrieval_attempts: int = Field(

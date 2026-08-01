@@ -38,6 +38,12 @@ dev = [
     "mypy>=1.14",
     "respx>=0.22",
 ]
+ml = [
+    "accelerate>=1.1",
+    "pandas>=2.2",
+    "pyarrow>=18",
+    "scikit-learn>=1.6",
+]
 
 [tool.ruff]
 line-length = 100

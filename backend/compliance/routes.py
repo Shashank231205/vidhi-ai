@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from compliance.agent import AuditResult, ComplianceAgent
 from core.agents.trace import RunFinished, TraceEmitter
+from core.classifiers import ClassifierRegistry
 from core.config import Settings, get_settings
 from core.db import Database
 from core.embeddings import EmbeddingService
@@ -40,6 +41,10 @@ def get_embeddings(request: Request) -> EmbeddingService:
 
 def get_llm(request: Request) -> LLMRouter:
     return request.app.state.llm  # type: ignore[no-any-return]
+
+
+def get_classifiers(request: Request) -> ClassifierRegistry:
+    return request.app.state.classifiers  # type: ignore[no-any-return]
 
 
 class AuditRequest(BaseModel):
@@ -92,7 +97,11 @@ async def audit_contract(
 ) -> AuditResponse:
     """Run a full audit and return the result once complete."""
     agent = ComplianceAgent(
-        get_database(request), get_embeddings(request), get_llm(request), settings
+        get_database(request),
+        get_embeddings(request),
+        get_llm(request),
+        settings,
+        get_classifiers(request),
     )
     result = await agent.audit(body.text, title=body.title, max_clauses=body.max_clauses)
     return _to_response(result)
@@ -118,7 +127,11 @@ async def audit_upload(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     agent = ComplianceAgent(
-        get_database(request), get_embeddings(request), get_llm(request), settings
+        get_database(request),
+        get_embeddings(request),
+        get_llm(request),
+        settings,
+        get_classifiers(request),
     )
     result = await agent.audit(extracted.text, title=extracted.title, max_clauses=max_clauses)
     return _to_response(result)
@@ -142,7 +155,11 @@ async def audit_stream(
     emitter.subscribe(queue)
 
     agent = ComplianceAgent(
-        get_database(request), get_embeddings(request), get_llm(request), settings
+        get_database(request),
+        get_embeddings(request),
+        get_llm(request),
+        settings,
+        get_classifiers(request),
     )
 
     async def run() -> None:

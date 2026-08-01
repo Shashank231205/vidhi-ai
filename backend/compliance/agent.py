@@ -2,7 +2,7 @@
 
 A graph, not a chain: the path taken depends on runtime state.
 
-    parse → retrieve ⇄ critic → analyze ⇄ verify → emit
+    parse → retrieve ⇄ critic → analyze ⇄ verify → classify → emit
                  ▲                 │
                  └── more context ─┘
 
@@ -16,6 +16,10 @@ cannot spin:
   missing provision rather than guessing at it.
 - **verify → analyze.** Ungrounded findings go back to be re-grounded, and are
   discarded only after `max_grounding_attempts`.
+
+The classify node re-scores risk with the fine-tuned model when one is
+configured, and is skipped otherwise — which is what keeps the LLM-only path
+available as the baseline those numbers are measured against.
 
 Implemented directly rather than through LangGraph's runtime: the graph is
 small, the control flow is the interesting part, and expressing it as plain
@@ -32,6 +36,7 @@ from dataclasses import dataclass, field
 
 from core.agents.trace import NodeStatus, TraceEmitter
 from core.agents.verifier import CitationVerifier
+from core.classifiers import ClassifierRegistry
 from core.config import Settings
 from core.db import Database, DocumentKind
 from core.embeddings import EmbeddingService
@@ -58,6 +63,10 @@ class VerifiedFinding:
     quote: str
     suggested_fix: str
     chunk_id: str
+    #: Which path set `risk`. Recorded so the classifier's contribution stays
+    #: visible in the UI and separable in eval.
+    risk_source: str = "llm"
+    risk_confidence: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -66,6 +75,8 @@ class VerifiedFinding:
             "issue": self.issue,
             "explanation": self.explanation,
             "risk": self.risk.value,
+            "risk_source": self.risk_source,
+            "risk_confidence": self.risk_confidence,
             "citation": self.citation,
             "quote": self.quote,
             "suggested_fix": self.suggested_fix,
@@ -109,11 +120,13 @@ class ComplianceAgent:
         embeddings: EmbeddingService,
         llm: LLMRouter,
         settings: Settings,
+        classifiers: ClassifierRegistry | None = None,
     ) -> None:
         self._db = database
         self._embeddings = embeddings
         self._llm = llm
         self._settings = settings
+        self._classifiers = classifiers
 
     async def _retrieve(
         self, query: str, limit: int, kind: DocumentKind | None = DocumentKind.STATUTE
@@ -289,6 +302,52 @@ class ComplianceAgent:
 
         return [], discarded, False
 
+    async def _classify_risk(self, findings: list[VerifiedFinding], emitter: TraceEmitter) -> None:
+        """Re-score risk with the fine-tuned classifier, in place.
+
+        Runs after verification rather than before, so the model only ever
+        scores findings that are already grounded — an ungrounded finding's
+        risk level is meaningless.
+
+        The LLM's own level stands when no classifier is configured or the
+        model declines confidently enough, which is what keeps the LLM-only
+        path available as the measured baseline.
+        """
+        if self._classifiers is None or not self._classifiers.has_risk_classifier:
+            return
+        if not findings:
+            return
+
+        emitter.emit("classify", NodeStatus.STARTED, f"scoring {len(findings)} finding(s)")
+        changed = 0
+
+        for finding in findings:
+            prediction = await self._classifiers.risk(finding.clause_text)
+            if prediction is None:
+                continue
+            if prediction.confidence < self._settings.risk_classifier_min_confidence:
+                # A low-confidence prediction is worse than the LLM's reasoned
+                # judgement, which at least saw the statutory context.
+                continue
+
+            try:
+                level = RiskLevel(prediction.label)
+            except ValueError:
+                log.warning("unknown_risk_label", label=prediction.label)
+                continue
+
+            if level is not finding.risk:
+                changed += 1
+            finding.risk = level
+            finding.risk_source = prediction.source
+            finding.risk_confidence = prediction.confidence
+
+        emitter.emit(
+            "classify",
+            NodeStatus.COMPLETED,
+            f"{changed} risk level(s) revised by the classifier",
+        )
+
     def _verify_findings(
         self,
         findings: list[Finding],
@@ -369,6 +428,7 @@ class ComplianceAgent:
                 findings, discarded, failed = await self._analyze_and_verify(
                     clause.content, label, hits, emitter
                 )
+                await self._classify_risk(findings, emitter)
 
             completed += 1
             if not failed:

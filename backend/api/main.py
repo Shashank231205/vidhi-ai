@@ -22,6 +22,7 @@ from api.routes import router as api_router
 from caselens.routes import router as caselens_router
 from compliance.routes import router as compliance_router
 from core.cache import Cache
+from core.classifiers import ClassifierRegistry
 from core.config import Settings, get_settings
 from core.db import Database
 from core.embeddings import EmbeddingService
@@ -64,6 +65,9 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
 
         llm = LLMRouter(settings)
         app.state.llm = llm
+
+        # Absent models are normal: the agents fall back to the LLM path.
+        app.state.classifiers = ClassifierRegistry(settings, cache)
 
         # Load the model now rather than making the first user wait for it.
         # Failure here is not fatal: retrieval degrades to lexical-only and

@@ -20,6 +20,14 @@ node_modules/
 out/
 .vercel/
 
+# Trained model weights. Reproducible from ml/*/train.py, and far too large
+# for git — metrics.json is committed so the numbers stay reviewable.
+ml/*/model/**
+!ml/*/model/metrics.json
+ml/*/checkpoints/
+*.safetensors
+*.bin
+
 # Editor / OS
 .DS_Store
 .idea/

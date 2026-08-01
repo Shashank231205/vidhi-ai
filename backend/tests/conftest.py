@@ -40,6 +40,11 @@ def build_settings(**overrides: object) -> Settings:
         # Unit tests must never load the local model: it costs seconds per
         # test and gigabytes of memory. Integration tests use real settings.
         "embedding_backend": EmbeddingBackend.REMOTE,
+        # Pinned off for the same reason the credentials are pinned: a
+        # developer with a trained model in .env must not get different
+        # results from CI.
+        "risk_classifier_model": None,
+        "stance_classifier_model": None,
     }
     return Settings(**{**defaults, **overrides})  # type: ignore[arg-type]
 
