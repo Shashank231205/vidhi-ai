@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens.
+ *
+ * Built around a deep indigo rather than a saturated blue: legal software is
+ * read for long stretches, and the lower-chroma hue holds up better against
+ * dense text.
+ *
+ * Risk and stance colours are the one place chroma is spent deliberately —
+ * they carry meaning. They are never the only signal: every badge pairs colour
+ * with a text label, so the UI still works in greyscale or with colour-vision
+ * deficiency.
+ */
+
+@theme {
+  /* Neutrals, warm-tinted. Pure grey reads cold beside legal prose. */
+  --color-ink-50: oklch(0.985 0.002 285);
+  --color-ink-100: oklch(0.968 0.004 285);
+  --color-ink-200: oklch(0.925 0.006 285);
+  --color-ink-300: oklch(0.868 0.008 285);
+  --color-ink-400: oklch(0.706 0.012 285);
+  --color-ink-500: oklch(0.556 0.014 285);
+  --color-ink-600: oklch(0.442 0.014 285);
+  --color-ink-700: oklch(0.372 0.013 285);
+  --color-ink-800: oklch(0.269 0.011 285);
+  --color-ink-900: oklch(0.208 0.010 285);
+  --color-ink-950: oklch(0.145 0.008 285);
+
+  --color-brand-50: oklch(0.970 0.014 285);
+  --color-brand-100: oklch(0.930 0.032 285);
+  --color-brand-200: oklch(0.880 0.055 285);
+  --color-brand-300: oklch(0.780 0.090 285);
+  --color-brand-500: oklch(0.585 0.170 285);
+  --color-brand-600: oklch(0.520 0.180 285);
+  --color-brand-700: oklch(0.452 0.165 285);
+  --color-brand-900: oklch(0.300 0.110 285);
+
+  /* Risk. Deliberately not red/amber/green: green would read as "passed"
+     when low risk still means a finding was raised. */
+  --color-risk-high: oklch(0.577 0.195 27);
+  --color-risk-medium: oklch(0.640 0.145 65);
+  --color-risk-low: oklch(0.560 0.055 240);
+
+  /* Stance, for CaseLens. */
+  --color-supports: oklch(0.545 0.130 155);
+  --color-undermines: oklch(0.577 0.195 27);
+  --color-neutral-stance: oklch(0.556 0.014 285);
+
+  /* Type scale, 1.2 ratio and capped: legal UIs need density, not drama. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-stack), ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: 0.625rem;
+
+  /* Short and eased-out. The trace updates continuously, and anything slower
+     than ~220ms reads as lag rather than polish. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Semantic surface tokens, themed below. */
+:root {
+  --background: oklch(0.985 0.002 285);
+  --surface: white;
+  --surface-sunken: oklch(0.968 0.004 285);
+  --border: oklch(0.925 0.006 285);
+  --foreground: oklch(0.208 0.010 285);
+  --muted: oklch(0.556 0.014 285);
+
+  --risk-high-bg: oklch(0.958 0.022 27);
+  --risk-medium-bg: oklch(0.965 0.030 75);
+  --risk-low-bg: oklch(0.962 0.012 240);
+  --supports-bg: oklch(0.960 0.030 155);
+  --undermines-bg: oklch(0.958 0.022 27);
+}
+
+/* Dark values, shared by the system preference and the explicit toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: oklch(0.145 0.008 285);
+    --surface: oklch(0.208 0.010 285);
+    --surface-sunken: oklch(0.175 0.009 285);
+    --border: oklch(0.269 0.011 285);
+    --foreground: oklch(0.968 0.004 285);
+    --muted: oklch(0.706 0.012 285);
+
+    --risk-high-bg: oklch(0.270 0.055 27);
+    --risk-medium-bg: oklch(0.275 0.050 75);
+    --risk-low-bg: oklch(0.255 0.022 240);
+    --supports-bg: oklch(0.260 0.045 155);
+    --undermines-bg: oklch(0.270 0.055 27);
+
+    /* Foreground risk hues lift in dark mode; the light-mode values fail
+       contrast against a dark surface. */
+    --color-risk-high: oklch(0.712 0.160 27);
+    --color-risk-medium: oklch(0.780 0.130 75);
+    --color-risk-low: oklch(0.720 0.045 240);
+    --color-supports: oklch(0.720 0.130 155);
+    --color-undermines: oklch(0.712 0.160 27);
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: oklch(0.145 0.008 285);
+  --surface: oklch(0.208 0.010 285);
+  --surface-sunken: oklch(0.175 0.009 285);
+  --border: oklch(0.269 0.011 285);
+  --foreground: oklch(0.968 0.004 285);
+  --muted: oklch(0.706 0.012 285);
+
+  --risk-high-bg: oklch(0.270 0.055 27);
+  --risk-medium-bg: oklch(0.275 0.050 75);
+  --risk-low-bg: oklch(0.255 0.022 240);
+  --supports-bg: oklch(0.260 0.045 155);
+  --undermines-bg: oklch(0.270 0.055 27);
+
+  --color-risk-high: oklch(0.712 0.160 27);
+  --color-risk-medium: oklch(0.780 0.130 75);
+  --color-risk-low: oklch(0.720 0.045 240);
+  --color-supports: oklch(0.720 0.130 155);
+  --color-undermines: oklch(0.712 0.160 27);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible focus everywhere: the app is keyboard-navigable by requirement,
+     and the browser default is invisible against the dark surfaces. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-brand-100);
+    color: var(--color-brand-900);
+  }
+}
+
+@utility surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+@utility text-muted {
+  color: var(--muted);
+}
+
+/* Quoted statute and judgment text: tighter, so a cited provision is visually
+   distinct from the application's own prose. */
+@utility legal-text {
+  font-size: var(--text-sm);
+  line-height: 1.68;
+  letter-spacing: -0.003em;
+}
+
+@layer utilities {
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface-sunken);
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklch, var(--surface) 70%, transparent),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-in {
+    animation: slide-up 0.22s var(--ease-out-quart) both;
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .animate-pulse-dot {
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  /* The trace animates continuously, so honouring this is not optional. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in,
+    .animate-pulse-dot,
+    .skeleton::after {
+      animation: none;
+    }
+  }
+}

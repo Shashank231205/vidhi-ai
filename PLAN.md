@@ -37,6 +37,14 @@ Gemini is out per user. **Primary:** Groq (Llama 3.3 70B — free tier, very fas
 ### Redis
 Upstash Redis (free tier, HTTP-based) rather than a container — keeps the "nothing local" rule intact.
 
+### Deployment is split, and has to be
+Vercel runs the frontend only. Its serverless functions cap at 250MB unzipped
+and 10s on the free tier, while the backend needs ~3GB resident (BGE-M3 2.2GB,
+DistilBERT 268MB, PyTorch ~800MB) and a contract audit takes 30-160s. The
+backend therefore runs on HuggingFace Spaces — free Docker hosting with 16GB
+RAM, the only free tier that fits local models. Spaces sleep after inactivity,
+so a cold demo pays a ~30s wake-up.
+
 ---
 
 ## Architecture
@@ -192,7 +200,7 @@ Unified eval harness, metrics dashboard, p50/p95 latency and cost-per-query logg
 | Embeddings | BGE-M3 via HF Inference | free |
 | Classifiers | InLegalBERT fine-tuned, HF Hub | free |
 | Training | Colab / Kaggle GPU | free |
-| API host | Render or Fly.io | free |
+| API host | HuggingFace Spaces (Docker) | free, 16GB RAM |
 | Frontend host | Vercel | free |
 
 Total infra cost: ₹0.
