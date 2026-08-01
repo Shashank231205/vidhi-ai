@@ -203,8 +203,50 @@ scripts/        corpus ingestion
 | API host | HuggingFace Spaces (Docker) | free |
 | Frontend host | Vercel | free |
 
-Total infrastructure cost: **₹0**. See [DEPLOY.md](DEPLOY.md) for the split and
-why Vercel cannot host the backend.
+Total infrastructure cost: **₹0**.
+
+---
+
+## Deployment
+
+The two halves deploy to different hosts, and they have to: Vercel's
+serverless functions cap at 250MB and 10s, while the backend holds ~3GB of
+models and an audit runs for minutes.
+
+**Backend → HuggingFace Spaces** (Docker SDK, CPU basic). Set these as Space
+secrets:
+
+```
+DATABASE_URL          Supabase transaction pooler, port 6543
+UPSTASH_REDIS_URL     REST endpoint
+UPSTASH_REDIS_TOKEN
+GROQ_API_KEY
+OPENROUTER_API_KEY    optional second provider
+ENVIRONMENT           production
+```
+
+```bash
+git remote add space https://huggingface.co/spaces/<user>/vidhi-ai-api
+git push space main
+```
+
+The first build takes 10–15 minutes: it installs CPU-only Torch and bakes the
+embedding model into the image, so a sleeping Space wakes in seconds rather
+than minutes.
+
+**Frontend → Vercel**, with one environment variable:
+
+```
+API_ORIGIN = https://<user>-vidhi-ai-api.hf.space
+```
+
+Not `NEXT_PUBLIC_` — the proxy runs server-side, so the backend URL never
+reaches the browser.
+
+Two things that otherwise cost an hour: use the **pooler** connection string
+(port 6543), not the direct one, and **percent-encode** special characters in
+the database password (`@` → `%40`), or it is read as the host separator and
+fails with a misleading auth error.
 
 ---
 

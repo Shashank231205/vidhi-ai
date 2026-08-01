@@ -57,10 +57,32 @@ USER user
 
 # Bake the embedding model in. This is the slow half of the build and the
 # reason a cold Space wakes in seconds rather than minutes.
+#
+# The repository ships the same 2.2GB weights twice — model.safetensors and
+# pytorch_model.bin — and a plain download fetches both, which is 2.2GB of
+# image and build time spent on a file that is never read. Only safetensors is
+# loaded, so the duplicate is removed once the download has completed.
 RUN python -c "\
 from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('BAAI/bge-m3')" \
-    && echo "embedding model cached"
+    && python - <<'PRUNE'
+import os, pathlib
+# Snapshot entries are symlinks into blobs/, so the blob has to be unlinked
+# through the link target — deleting the symlink alone frees nothing.
+unused = ("pytorch_model.bin", "model.onnx", "tf_model.h5", "flax_model.msgpack")
+freed = 0
+for root, _, files in os.walk("/home/user/.cache/huggingface/hub"):
+    for name in files:
+        if name not in unused:
+            continue
+        entry = pathlib.Path(root, name)
+        target = entry.resolve()
+        if target.exists():
+            freed += target.stat().st_size
+            target.unlink()
+        entry.unlink(missing_ok=True)
+print(f"pruned {freed / 1e9:.2f} GB of duplicate weights")
+PRUNE
 
 WORKDIR /app/backend
 
