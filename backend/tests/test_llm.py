@@ -1,5 +1,6 @@
 """LLM routing: failover, JSON recovery, and schema enforcement."""
 
+import json
 from collections.abc import Callable
 
 import httpx
@@ -49,7 +50,12 @@ async def test_uses_first_configured_provider() -> None:
 
 
 async def test_fails_over_when_rate_limited() -> None:
-    """A 429 on the primary must transparently reach the next provider."""
+    """A saturated provider must transparently reach a different one.
+
+    Groq contributes several models to the pool, so a provider-wide 429 is
+    several failed attempts before OpenRouter is reached — the point is that
+    the caller still gets a completion.
+    """
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -63,7 +69,85 @@ async def test_fails_over_when_rate_limited() -> None:
 
     assert result.text == "from fallback"
     assert result.provider is LLMProvider.OPENROUTER
-    assert len(seen) == 2
+    assert any("groq" in host for host in seen)
+
+
+async def test_rate_limited_models_are_parked() -> None:
+    """A model that 429s is skipped on the next call rather than retried.
+
+    Without this every concurrent clause rediscovers the same limit, turning
+    one saturated model into a stall across the whole audit.
+    """
+    attempts: list[str] = []
+    limited: str | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal limited
+        model = json.loads(request.content.decode())["model"]
+        attempts.append(model)
+
+        # Rate-limit whichever model the rotation reaches first, rather than
+        # naming one: the cursor advances per call, so the first model tried is
+        # not fixed.
+        if limited is None:
+            limited = model
+        if model == limited:
+            return httpx.Response(429, headers={"retry-after": "30"}, text="limited")
+        return httpx.Response(200, json=completion_body("ok"))
+
+    router = router_with(handler)
+    await router.complete([{"role": "user", "content": "x"}])
+
+    for _ in range(3):
+        await router.complete([{"role": "user", "content": "y"}])
+
+    # Tried once, then skipped for the whole 30s window it asked for.
+    assert limited is not None
+    assert attempts.count(limited) == 1
+
+
+async def test_pool_spreads_calls_across_models() -> None:
+    """Consecutive calls must not all land on the same model.
+
+    Rate limits are per model, so rotation is what multiplies the budget —
+    hitting one model repeatedly would forfeit the entire benefit.
+    """
+    used: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        used.append(json.loads(request.content.decode())["model"])
+        return httpx.Response(200, json=completion_body("ok"))
+
+    router = router_with(handler)
+    for _ in range(4):
+        await router.complete([{"role": "user", "content": "x"}])
+
+    assert len(set(used)) > 1
+
+
+async def test_truncated_json_is_retryable() -> None:
+    """Groq reports a token-truncated object as a 400, not a 5xx.
+
+    It is not a malformed request — the generation ran out of room — so it must
+    fall through to another model instead of aborting the call.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content.decode())["model"]
+        seen.append(model)
+        if len(seen) == 1:
+            return httpx.Response(
+                400,
+                text='{"error":{"code":"json_validate_failed","failed_generation":""}}',
+            )
+        return httpx.Response(200, json=completion_body('{"ok":true}'))
+
+    router = router_with(handler)
+    result = await router.complete([{"role": "user", "content": "x"}], json_mode=True)
+
+    assert result.text == '{"ok":true}'
+    assert len(seen) >= 2
 
 
 async def test_payment_required_fails_over() -> None:
@@ -99,7 +183,7 @@ async def test_raises_when_every_provider_fails() -> None:
         return httpx.Response(503, text="unavailable")
 
     router = router_with(handler, openrouter_api_key="or-key")
-    with pytest.raises(LLMError, match="all providers failed"):
+    with pytest.raises(LLMError, match="all models failed"):
         await router.complete([{"role": "user", "content": "x"}])
 
 

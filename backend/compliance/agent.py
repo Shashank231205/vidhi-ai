@@ -164,12 +164,27 @@ class ComplianceAgent:
             if attempt == self._settings.max_retrieval_attempts:
                 return hits, attempt
 
+            # A confidently-retrieved clause does not need a critic. The score
+            # is fused RRF: above the threshold both arms agreed on the top
+            # hit, which is exactly the case the critic would pass anyway — and
+            # asking costs a full round trip plus the tokens to describe every
+            # retrieved provision.
+            top_score = hits[0].score if hits else 0.0
+            if top_score >= self._settings.critic_skip_score:
+                emitter.emit(
+                    "critic",
+                    NodeStatus.SKIPPED,
+                    f"retrieval agreed strongly (score {top_score:.3f})",
+                    attempt=attempt,
+                )
+                return hits, attempt
+
             emitter.emit("critic", NodeStatus.STARTED, "assessing retrieved law", attempt=attempt)
             try:
                 verdict = await self._llm.structured(
                     RETRIEVAL_CRITIC.messages(
                         clause=clause_text[:3000],
-                        context=render_context(hits),
+                        context=render_context(hits[: self._settings.llm_context_chunks]),
                         attempted="; ".join(attempted),
                     ),
                     RETRIEVAL_CRITIC.schema,
@@ -215,8 +230,11 @@ class ComplianceAgent:
         Rejected findings are fed back with the rejection reason rather than
         dropped: the model usually cited the right law under the wrong id.
         """
+        # The verifier sees every retrieved hit; only the prompt is trimmed.
+        # Narrowing what the model may cite would reject valid citations, while
+        # narrowing what it is shown just saves tokens.
         verifier = CitationVerifier(hits)
-        context = render_context(hits)
+        context = render_context(hits[: self._settings.llm_context_chunks])
         feedback: str | None = None
         discarded = 0
 

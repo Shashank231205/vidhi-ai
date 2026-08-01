@@ -117,18 +117,38 @@ class Settings(BaseSettings):
     stance_classifier_min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # --- Agent behaviour ---
+    #
+    # These caps are the dominant cost of an audit: a clause costs up to
+    # (attempts x critic) + (attempts x analyse) LLM calls, each carrying the
+    # retrieved provisions. Measured on the sample contract, three clauses ran
+    # 219s — almost entirely waiting on rate limits caused by call volume.
     max_retrieval_attempts: int = Field(
-        default=3, ge=1, le=5, description="Critic-loop reformulation cap."
+        default=2, ge=1, le=5, description="Critic-loop reformulation cap."
     )
     max_grounding_attempts: int = Field(
         default=2, ge=1, le=4, description="Verifier reject-and-retry cap."
     )
+    #: Skip the critic when the top retrieval scores at least this well.
+    #:
+    #: The critic exists for weak retrievals, and running it on an obviously
+    #: good one spends a full round trip to be told so. RRF scores above this
+    #: mean both arms agreed on the top hit, which is the case the critic was
+    #: never needed for. Set to 0 to always run it.
+    critic_skip_score: float = Field(default=0.028, ge=0.0, le=1.0)
     #: How many clauses are audited at once. Clauses are independent, so this
     #: is the main lever on audit latency; capped to stay inside provider rate
     #: limits rather than to protect our own resources.
     max_concurrent_clauses: int = Field(default=6, ge=1, le=20)
 
     retrieval_top_k: int = 8
+    #: How many provisions are actually sent to the LLM.
+    #:
+    #: Retrieval fetches more than this so fusion has room to rank, but every
+    #: provision in the prompt is tokens spent against a per-minute budget.
+    #: The eval set shows the answer is almost always in the top few — recall@5
+    #: is 0.925 against 0.95 at k=8 — so the tail costs throughput to add
+    #: little.
+    llm_context_chunks: int = Field(default=5, ge=1, le=20)
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
 
     #: Fusion weights, chosen by sweeping both against the DPDP eval set rather
