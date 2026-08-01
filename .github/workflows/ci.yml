@@ -63,3 +63,10 @@ jobs:
       # network calls, so no secrets are needed here.
       - name: Test
         run: uv run pytest -q --cov=api --cov=core --cov-report=term-missing
+
+      # The groundedness harness needs no credentials — it runs the verifier
+      # against planted fabrications in memory. Gating on it means a change
+      # that weakens verification fails the build rather than being noticed
+      # later in an eval run nobody remembered to trigger.
+      - name: Groundedness
+        run: uv run python ../eval/groundedness_eval.py

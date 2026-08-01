@@ -29,7 +29,20 @@ These are the places the PRD as written conflicts with the constraints above.
 The PRD lists it as the CaseLens data source. It bills per document (~₹0.25–0.50/doc) with no bulk free tier. **Replacement:** open Indian judgment corpora on HuggingFace (pre-scraped, free, redistributable) plus the eCourts/SCI public portals for gap-filling. Ingestion code is written against a `JudgmentSource` interface so Kanoon can be dropped in later if you decide to pay for it.
 
 ### "No local" vs. fine-tuned models
-Training needs a GPU. Resolution: train on free Colab/Kaggle GPU → push weights to HF Hub → serve over HF Inference API. Nothing local at any point. Cost: 1–3s cold start on the free tier, mitigated in Phase 5 by Redis-cached predictions and keep-warm pings.
+Original plan: train on Colab, serve over HF Inference API, nothing local.
+
+**Revised during Phase 6, after measuring.** The "nothing local" rule was about
+*state* — no SQLite, no filesystem persistence — and models are not state: they
+are immutable compute, reproducible from `ml/*/train.py`. Held to literally, the
+rule cost 500ms–1.3s per query through the hosted Inference API, against 27ms
+for the same BGE-M3 weights in-process. That is a 20x latency penalty to honour
+a rule aimed at something else.
+
+Both backends are implemented behind one interface (`core/embeddings.py`), and
+the same 1024-dim weights mean a corpus embedded by one is valid for the other.
+Local is the default; `EMBEDDING_BACKEND=remote` restores the hosted path for
+deployment targets where a 2.2GB model is unwelcome. All *state* remains
+hosted.
 
 ### LLM provider
 Gemini is out per user. **Primary:** Groq (Llama 3.3 70B — free tier, very fast). **Secondary:** Cerebras. **Fallback:** OpenRouter free models. All three are OpenAI-compatible, so one thin provider abstraction covers all of them with automatic failover on rate-limit.
@@ -50,9 +63,9 @@ so a cold demo pays a ~30s wake-up.
 ## Architecture
 
 ```
-Next.js 15 (Vercel)
+Next.js 15 (Vercel) — proxies /api/* server-side, so one origin and no CORS
         │  streaming SSE
-FastAPI (Render/Fly)
+FastAPI (HuggingFace Spaces)
         │
    ┌────┴────────────────────────────┐
    │   Shared Core                    │
@@ -197,9 +210,9 @@ Unified eval harness, metrics dashboard, p50/p95 latency and cost-per-query logg
 | DB | Supabase Postgres + pgvector | 500MB |
 | Cache | Upstash Redis | 10k cmd/day |
 | LLM | Groq → Cerebras → OpenRouter | generous |
-| Embeddings | BGE-M3 via HF Inference | free |
-| Classifiers | InLegalBERT fine-tuned, HF Hub | free |
-| Training | Colab / Kaggle GPU | free |
+| Embeddings | BGE-M3 in-process (HF Inference optional) | free |
+| Classifiers | DistilBERT fine-tuned on CUAD | free |
+| Training | Local CPU, ~14 min (Colab not needed) | free |
 | API host | HuggingFace Spaces (Docker) | free, 16GB RAM |
 | Frontend host | Vercel | free |
 
@@ -219,3 +232,41 @@ Cold-path work is pushed off the request path and cached aggressively:
 - HNSW (not IVFFlat) indexes for low-latency ANN at this corpus size.
 
 **Targets:** retrieval p95 < 300ms · first token < 1.5s · full clause analysis p95 < 8s.
+
+
+---
+
+## Delivered — what changed against this plan
+
+All eight phases are built. The plan held up; five things did not survive
+contact with reality, and each is documented where the decision lives.
+
+| Planned | Delivered | Why it changed |
+|---|---|---|
+| Embeddings via HF Inference API | In-process BGE-M3, remote optional | 27ms vs 500-1300ms measured. The "nothing local" rule targets state, not compute. |
+| InLegalBERT classifier | DistilBERT on CUAD | CUAD is 13,155 attorney-labelled clauses; no comparable Indian labelled set exists. Trains on CPU in 14 min. |
+| LangGraph runtime | Plain async state machine | The graph is small and its control flow is the interesting part. LangGraph's runtime added indirection without adding capability; the state machine is the one described above. |
+| Indian Kanoon | Open HF judgment corpora | Kanoon bills per document. Ingestion is written against `JudgmentSource`, so Kanoon drops in if it is ever paid for. |
+| Cerebras as secondary provider | OpenRouter promoted to second | Cerebras' free tier now returns 402. Keeping it second would put a dead hop in every failover. |
+
+### Where the numbers landed
+
+| Target | Result |
+|---|---|
+| Zero ungrounded citations | 100% of 8 planted fabrications rejected, 100% of 6 real citations accepted |
+| Beat naive vector search | Hybrid lifts recall@5 0.875 → 0.925, hit-rate 0.90 → 0.95 |
+| Classifiers beat baseline | Macro-F1 0.869 vs 0.833 (TF-IDF) vs 0.267 (majority) |
+| First token < 1.5s | 356ms p95 |
+| Retrieval p95 < 300ms | 349ms p95 locally — a bare `SELECT 1` to Supabase costs 43ms from a laptop; the target assumes co-location |
+
+### What the plan under-specified
+
+- **Rate limits are a design constraint, not an operational detail.** Groq's
+  free tier is 12k tokens/min, which a long contract exhausts. The router waits
+  out short windows and fails over otherwise.
+- **Retrieval quality needed tuning against a real eval set, not intuition.**
+  Equal-weight RRF scored *below* vector alone. The weights in `core/config.py`
+  were swept, and are corpus-dependent — re-run `eval/retrieval_eval.py` after
+  adding statutes.
+- **Statute URLs rot.** 9 of 12 hardcoded India Code PDF paths were already
+  dead. Sources store the stable DSpace handle and resolve at fetch time.

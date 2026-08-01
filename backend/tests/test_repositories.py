@@ -184,9 +184,12 @@ async def test_pending_embedding_finds_unembedded_only(db: Database, clean_docum
             ],
         )
 
+    # Scoped in the query, not filtered afterwards. The shared database holds
+    # a real corpus, so a post-filter over the first 500 pending rows finds
+    # nothing from this test once other documents await embedding.
     async with db.session() as session:
         repo = ChunkRepository(session)
-        pending = [c for c in await repo.pending_embedding(limit=500) if c.document_id == doc.id]
+        pending = list(await repo.pending_embedding(limit=500, document_id=doc.id))
         assert [c.content for c in pending] == ["not yet embedded"]
 
         filled = await repo.set_embeddings({pending[0].id: [0.3] * 1024})
@@ -194,8 +197,8 @@ async def test_pending_embedding_finds_unembedded_only(db: Database, clean_docum
 
     async with db.session() as session:
         repo = ChunkRepository(session)
-        still = [c for c in await repo.pending_embedding(limit=500) if c.document_id == doc.id]
-        assert still == []
+        still = await ChunkRepository(session).pending_embedding(limit=500, document_id=doc.id)
+        assert list(still) == []
 
 
 async def test_citation_edges_are_idempotent(db: Database, clean_documents: None) -> None:

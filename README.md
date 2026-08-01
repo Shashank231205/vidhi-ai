@@ -1,117 +1,227 @@
 # VidhiAI
 
-A unified AI legal platform for Indian law. One backend, one retrieval core, two modules:
+An AI legal platform for Indian law. One retrieval core, two modules:
 
-- **ComplianceGuard** — audits contracts against Indian statutes and internal policy, flagging violations with exact citations.
-- **CaseLens** — retrieves relevant Indian case law for a fact pattern and assesses whether each precedent supports or undermines your position.
+- **ComplianceGuard** — audits a contract clause by clause against Indian
+  statutes, flagging conflicts with the exact provision each one relies on.
+- **CaseLens** — retrieves precedents for a fact pattern and assesses whether
+  each one supports or undermines the position being argued.
 
-Every output is grounded: a shared citation-verifier agent asserts that each cited
-passage resolves to a real ingested chunk and that the quoted text actually appears
-in it. Claims that fail are sent back to be re-grounded, not silently dropped.
-
-See [PLAN.md](PLAN.md) for the full build plan.
-
-## Status
-
-| Phase | Scope | State |
-|---|---|---|
-| 0 | Foundation — config, logging, trace events, API skeleton, CI | ✅ backend done |
-| 1 | Data layer — Supabase schema, pgvector, repositories | next |
-| 2 | Ingestion + hybrid retrieval | |
-| 3 | LLM router + prompts + ComplianceGuard v1 | |
-| 4 | Citation verifier | |
-| 5 | CaseLens v1 | |
-| 6 | Custom classifiers (risk, stance) | |
-| 7 | Next.js frontend | |
-| 8 | Eval + deploy | |
-
-## Requirements
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
-- Accounts (all free tier): Supabase, Upstash, HuggingFace, and at least one of
-  Groq / Cerebras / OpenRouter
-
-## Setup
+The property both modules are built around: **a claim ships only if it can be
+traced back to text the system actually retrieved.** Every citation is checked
+mechanically — the chunk must have been retrieved for that run, and the quote
+must appear in it. Claims that fail go back to be re-grounded, and are
+discarded rather than shown. Discarded counts are reported in the UI, because
+hiding them would quietly undo the guarantee.
 
 ```bash
-cp .env.example backend/.env   # then fill in credentials
 make install
-make dev
+cp .env.example backend/.env    # fill in credentials
+make dev                        # → http://localhost:3000
 ```
 
-`make dev` serves the API on `:8000`. Check it:
+---
+
+## What is measured
+
+Numbers from `eval/`, reproducible with the commands shown. Nothing here is
+asserted without a way to check it.
+
+### Groundedness — `eval/groundedness_eval.py`
+
+| Metric | Result |
+|---|---|
+| Fabricated citations rejected | **100%** (8/8) |
+| Real citations accepted | **100%** (6/6) |
+
+Both are reported because either alone is misleading: a verifier that rejects
+everything scores 100% on the first. The adversarial set includes invented
+penalty figures, quotes lifted from the wrong section, scattered word bags, and
+text that starts verbatim then continues into invention.
+
+### Retrieval — `eval/retrieval_eval.py`
+
+20 hand-built DPDP queries, k=5:
+
+| Retriever | P@5 | R@5 | MRR | Hit rate |
+|---|---|---|---|---|
+| Vector only | 0.410 | 0.875 | **0.842** | 0.90 |
+| Lexical only | 0.100 | 0.300 | 0.250 | 0.30 |
+| **Hybrid (RRF)** | 0.410 | **0.925** | 0.833 | **0.95** |
+
+Hybrid earns its place on recall, not ranking: it surfaces provisions the dense
+arm misses entirely (misses 4 → 1) at no precision cost. Equal-weight fusion
+initially scored *below* vector alone; the weights were swept against this set
+rather than guessed, and the reasoning is recorded in `core/config.py`.
+
+### Risk classifier — `ml/risk_classifier/`
+
+Trained on CUAD (13,155 clauses from real commercial contracts, labelled by
+attorneys), 1,934 held out:
+
+| Model | Accuracy | Macro-F1 | High-risk F1 |
+|---|---|---|---|
+| Majority class | 0.668 | 0.267 | 0.000 |
+| TF-IDF + logistic | 0.842 | 0.833 | 0.688 |
+| **Fine-tuned DistilBERT** | **0.885** | **0.869** | **0.730** |
+
+Macro-F1 rather than accuracy: with a 67% majority class, accuracy rewards a
+model that ignores the minority classes — which are exactly the high-risk
+clauses the tool exists to catch. The +0.035 over TF-IDF is what justifies the
+transformer.
+
+### Latency — `eval/latency_eval.py`
+
+| Stage | p50 | p95 |
+|---|---|---|
+| Query embedding (local BGE-M3) | 27ms | 119ms |
+| Hybrid retrieval, end to end | 314ms | 349ms |
+| LLM first token | 316ms | 356ms |
+
+First token beats its 1.5s target by 4×. Retrieval sits at the 300ms target
+rather than under it, and the reason is measured rather than guessed: a bare
+`SELECT 1` from a developer machine to Supabase costs ~43ms, and retrieval
+makes two queries. Co-locating the API with the database recovers most of it.
+
+---
+
+## How it works
+
+```
+Next.js (Vercel) ──proxies /api/*──► FastAPI (HF Spaces, 16GB)
+                                            │
+              ┌─────────────────────────────┴──────────────────┐
+              │ chunking · embeddings · hybrid retrieval        │
+              │ citation verifier · LLM router · classifiers    │
+              └───────┬──────────────────────────┬─────────────┘
+                      │                          │
+              ComplianceGuard                 CaseLens
+                      │                          │
+              ┌───────┴──────────────────────────┴─────────────┐
+              │ Supabase (Postgres + pgvector) · Upstash Redis  │
+              └────────────────────────────────────────────────┘
+```
+
+### The agents are graphs, not chains
+
+```
+parse → retrieve ⇄ critic → analyze ⇄ verify → classify → emit
+             ▲                  │
+             └─── more context ─┘
+```
+
+Three edges decide the path at runtime, each bounded so a bad clause cannot
+spin:
+
+- **critic → retrieve.** The critic judges whether retrieved provisions
+  actually govern the clause, and reformulates in statutory vocabulary when
+  they do not. A contract drafter's words and the legislature's rarely match.
+- **analyze → retrieve.** The analyzer can request a specific missing
+  provision instead of guessing at it.
+- **verify → analyze.** Ungrounded findings go back with the rejection reason
+  attached, which corrects far more often than a blind retry — the model
+  usually cited the right law under the wrong id.
+
+All three are visible in the live trace. A retry row is the agent rejecting its
+own intermediate result.
+
+### Verification is mechanical, never model-judged
+
+Asking an LLM whether a citation is accurate inherits the failure it exists to
+catch. Instead: the chunk id must be one retrieved for this run, and the quote
+must appear in that chunk's text at 85% of its longest contiguous word run.
+Not 100% — PDF extraction introduces line wrapping and smart quotes that would
+reject correct citations. Not lower — below that, unrelated legal boilerplate
+starts to match.
+
+### Retrieval is hybrid because neither half suffices
+
+Dense vectors find paraphrases but confuse "Section 8(3)" with "Section 9(3)".
+Lexical search nails identifiers but misses anything phrased differently from
+the statute. RRF fuses them by rank position, so the two incomparable score
+scales never have to be reconciled.
+
+---
+
+## Corpus
+
+Ingested from official sources, reproducible from `scripts/`:
+
+| Source | Content |
+|---|---|
+| India Code + MeitY | DPDP Act 2023, Companies Act 2013, Arbitration Act 1996, and more |
+| HuggingFace open corpora | Indian Supreme Court judgments, with a derived citation graph |
+
+Currently **153 documents, 9,216 chunks**. Statute PDF paths on India Code are
+unstable — 9 of 12 guessed URLs were already dead — so sources store the stable
+DSpace handle and resolve the PDF at fetch time.
 
 ```bash
-curl localhost:8000/health
+uv run python ../scripts/ingest_statutes.py --list
+uv run python ../scripts/ingest_statutes.py --priority 1
+uv run python ../scripts/ingest_judgments.py --limit 150
 ```
 
-`status` is `ok` only when every dependency is configured; anything missing shows
-up as `degraded` with a per-component reason. Interactive docs are at `/docs`
-(local environment only).
+---
 
 ## Development
 
 ```bash
-make check      # lint + typecheck + tests, same as CI
+make dev        # API + frontend on one port
+make check      # ruff, mypy --strict, pytest — what CI runs
+make web-build  # frontend lint + production build
 make format     # ruff format and autofix
-make test       # pytest with coverage
 ```
 
-The test suite is hermetic — settings are constructed explicitly in fixtures and
-nothing touches the network, so it runs without credentials.
-
-## Architecture
-
-```
-Next.js 15 (Vercel)
-        │  streaming SSE
-FastAPI (Render/Fly)
-        │
-   ┌────┴────────────────────────────┐
-   │   Shared Core                    │
-   │   ingestion · embeddings ·       │
-   │   hybrid retrieval · citation    │
-   │   verifier · LLM router          │
-   └────┬─────────────────┬───────────┘
-        │                 │
-  ComplianceGuard      CaseLens
-   (LangGraph)         (LangGraph)
-        │                 │
-   ┌────┴─────────────────┴───────────┐
-   │ Supabase (Postgres + pgvector)   │
-   │ Upstash Redis (cache)            │
-   │ HF Inference API (2 classifiers) │
-   └──────────────────────────────────┘
-```
-
-Both modules are self-correcting LangGraph graphs rather than linear chains: a
-critic node can reformulate a weak retrieval and retry, the analyzer can request
-more context mid-reasoning, and the verifier can reject and re-ground a claim.
-Every node transition emits a typed trace event streamed to the UI, so the
-self-correction is visible while it happens.
-
-### Layout
+123 unit tests run without credentials; integration tests skip unless
+`DATABASE_URL` is set. A pre-push hook runs the same gates CI does, because a
+red `main` is worse than a slow push.
 
 ```
 backend/
-  api/
-    main.py     app factory — wiring only, no business logic
-    routes.py   gateway endpoints (/health)
-  core/         shared infrastructure (config, logging, agents/trace)
-  tests/
+  api/          FastAPI gateway — wiring only
+  core/         chunking, embeddings, retrieval, verifier, LLM router, prompts
+  compliance/   ComplianceGuard agent + routes
+  caselens/     CaseLens agent, citation extraction + routes
+frontend/src/   Next.js app, design tokens, SSE trace
+ml/             classifier training, dataset construction, metrics
+eval/           groundedness, retrieval, latency harnesses
+scripts/        corpus ingestion
 ```
 
-One `routes.py` per package holds every endpoint that package exposes, so there
-is a single place to look for a module's surface. Domain packages
-(`compliance/routes.py`, `caselens/routes.py`), `ml/`, `frontend/`, and `eval/`
-land in their respective phases.
+---
 
-## Design rules
+## Stack
 
-1. **No local state.** Database, cache, and model endpoints are hosted services in
-   every environment, including development.
-2. **Grounded or discarded.** No citation ships unverified.
-3. **Latency is a feature.** Aggressive caching, parallel retrieval, streamed
-   responses. Targets: retrieval p95 < 300ms, first token < 1.5s.
-4. **Free tier throughout.** Total infra cost: ₹0.
+| Layer | Choice | Cost |
+|---|---|---|
+| Database | Supabase Postgres + pgvector | free |
+| Cache | Upstash Redis | free |
+| LLM | Groq → OpenRouter → Cerebras | free |
+| Embeddings | BGE-M3, in-process | free |
+| Classifier | DistilBERT fine-tuned on CUAD | free |
+| API host | HuggingFace Spaces (Docker) | free |
+| Frontend host | Vercel | free |
+
+Total infrastructure cost: **₹0**. See [DEPLOY.md](DEPLOY.md) for the split and
+why Vercel cannot host the backend.
+
+---
+
+## Honest limitations
+
+- **Decision support, not legal advice.** Outputs are grounded in retrieved
+  text; they are not a substitute for a lawyer.
+- **The corpus is partial.** "No issues found" reflects the Acts currently
+  ingested, not a clean bill of health.
+- **The risk classifier is trained on US commercial contracts.** CUAD is the
+  best labelled contract dataset available; it scores clause severity, while
+  the Indian statutory grounding comes from retrieval and verification.
+- **CUAD labels clause type, not risk.** The type→risk mapping in
+  `ml/risk_classifier/dataset.py` is a judgment call, written out explicitly so
+  a lawyer can disagree with a specific line.
+- **High-risk recall is 0.715.** The classifier misses roughly a quarter of
+  high-risk clauses, which is why it defers to the LLM below a confidence
+  threshold rather than overriding it.
+- **Free tiers bind.** Groq allows 12k tokens/min, and HF Spaces sleep after
+  inactivity.

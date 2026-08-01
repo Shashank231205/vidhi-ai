@@ -53,6 +53,12 @@ class Settings(BaseSettings):
 
     #: Browser origins allowed to call the API. The deployed frontend origin is
     #: appended here at deploy time; the defaults cover local Next.js dev.
+    #: Browser origins allowed to call the API directly.
+    #:
+    #: Normally unused: the frontend proxies /api/* server-side, so requests
+    #: reach this service from Next's server rather than from a browser and
+    #: carry no Origin header. These matter only for direct browser access —
+    #: /docs, or a client pointed straight at the API.
     cors_origins: list[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
 
     # --- Data layer (Supabase) ---

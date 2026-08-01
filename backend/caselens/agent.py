@@ -107,7 +107,7 @@ class CaseLensAgent:
 
     async def _retrieve(self, query: str, limit: int) -> list[Hit]:
         async with self._db.session() as session:
-            retriever = HybridRetriever(session, self._embeddings, self._settings)
+            retriever = HybridRetriever(session, self._embeddings, self._settings, self._db)
             return await retriever.search(query, limit=limit, kind=DocumentKind.JUDGMENT)
 
     async def _authority_counts(self, hits: list[Hit]) -> dict[str, int]:

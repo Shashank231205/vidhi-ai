@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings
 from core.db.models import DocumentKind
+from core.db.session import Database
 from core.embeddings import EmbeddingService
 from core.logging import get_logger
 
@@ -173,10 +174,40 @@ class HybridRetriever:
         session: AsyncSession,
         embeddings: EmbeddingService,
         settings: Settings,
+        database: Database | None = None,
     ) -> None:
         self._session = session
         self._embeddings = embeddings
         self._settings = settings
+        # Optional: when supplied, the two arms each take their own session so
+        # they can run concurrently. Without it they share `session` and run in
+        # sequence — correct, but roughly twice the latency.
+        self._database = database
+
+    async def _vector_on_new_session(
+        self,
+        query: str,
+        limit: int,
+        kind: DocumentKind | None,
+        document_id: uuid.UUID | None,
+    ) -> list[Hit]:
+        assert self._database is not None
+        vector = await self._embeddings.embed_one(query)
+        async with self._database.session() as session:
+            retriever = HybridRetriever(session, self._embeddings, self._settings)
+            return await retriever.vector_search(vector, limit, kind, document_id)
+
+    async def _lexical_on_new_session(
+        self,
+        query: str,
+        limit: int,
+        kind: DocumentKind | None,
+        document_id: uuid.UUID | None,
+    ) -> list[Hit]:
+        assert self._database is not None
+        async with self._database.session() as session:
+            retriever = HybridRetriever(session, self._embeddings, self._settings)
+            return await retriever.lexical_search(query, limit, kind, document_id)
 
     async def vector_search(
         self,
@@ -225,27 +256,35 @@ class HybridRetriever:
     ) -> list[Hit]:
         """Run both retrievers and fuse the results.
 
-        The embedding call is the slow part (a network round trip), so it runs
-        concurrently with the lexical query. The two *database* queries are
-        then issued sequentially: an AsyncSession is not safe for concurrent
-        use, and sharing one across gathered tasks corrupts its transaction
-        state. Overlapping the network call captures nearly all the win.
+        Three round trips are involved — embed, vector query, lexical query —
+        and against a hosted database each carries real network latency. They
+        are overlapped as far as correctness allows:
+
+        - The embedding runs concurrently with the lexical query, since the
+          lexical arm does not need a vector.
+        - The two database queries run on *separate sessions* when a Database
+          was supplied. An AsyncSession is not concurrency-safe: sharing one
+          across gathered tasks corrupts its transaction state, which is a bug
+          this code shipped with once already. With one session they fall back
+          to running in sequence, which is correct but slower.
         """
         limit = limit or self._settings.retrieval_top_k
         # Over-fetch per arm so fusion has room to promote agreed-upon hits.
         per_arm = max(limit * 3, 20)
-
-        vector_task = asyncio.create_task(self._embeddings.embed_one(query))
         # Capped shallower than the vector arm: past the top few, OR-matched
         # lexical results share only common words and add noise to the fusion.
-        lexical_hits = await self.lexical_search(
-            query,
-            min(per_arm, self._settings.lexical_candidate_limit),
-            kind,
-            document_id,
-        )
-        query_vector = await vector_task
-        vector_hits = await self.vector_search(query_vector, per_arm, kind, document_id)
+        lexical_depth = min(per_arm, self._settings.lexical_candidate_limit)
+
+        if self._database is not None:
+            vector_hits, lexical_hits = await asyncio.gather(
+                self._vector_on_new_session(query, per_arm, kind, document_id),
+                self._lexical_on_new_session(query, lexical_depth, kind, document_id),
+            )
+        else:
+            vector_task = asyncio.create_task(self._embeddings.embed_one(query))
+            lexical_hits = await self.lexical_search(query, lexical_depth, kind, document_id)
+            query_vector = await vector_task
+            vector_hits = await self.vector_search(query_vector, per_arm, kind, document_id)
 
         fused = reciprocal_rank_fusion(
             [vector_hits, lexical_hits],

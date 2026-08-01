@@ -1,0 +1,13 @@
+node_modules
+.next
+.venv
+__pycache__
+*.pyc
+.git
+ml/*/model/**
+!ml/*/model/metrics.json
+frontend
+eval
+.env
+.env.*
+!.env.example

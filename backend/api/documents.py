@@ -177,7 +177,7 @@ async def search_documents(
     database = get_database(request)
 
     async with database.session() as session:
-        retriever = HybridRetriever(session, get_embeddings(request), settings)
+        retriever = HybridRetriever(session, get_embeddings(request), settings, database)
         hits = await retriever.search(q, limit=limit, kind=kind, document_id=document_id)
 
     return SearchResponse(

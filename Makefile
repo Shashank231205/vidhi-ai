@@ -3,7 +3,7 @@ BACKEND := backend
 FRONTEND := frontend
 UV := uv
 
-.PHONY: help install hooks dev dev-api dev-web lint format typecheck test check clean web-build
+.PHONY: help install hooks dev dev-api dev-web lint format typecheck test check clean web-build eval eval-grounding
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -48,6 +48,13 @@ test: ## pytest with coverage
 	cd $(BACKEND) && $(UV) run pytest -q --cov=api --cov=core --cov-report=term-missing
 
 check: lint typecheck test ## Everything CI runs
+
+eval-grounding: ## Adversarial citation verification (no credentials needed)
+	cd $(BACKEND) && $(UV) run python ../eval/groundedness_eval.py
+
+eval: eval-grounding ## Every eval harness (retrieval and latency need a corpus)
+	cd $(BACKEND) && $(UV) run python ../eval/retrieval_eval.py
+	cd $(BACKEND) && $(UV) run python ../eval/latency_eval.py
 
 web-build: ## Type-check, lint, and build the frontend
 	cd $(FRONTEND) && npm run lint && npm run build

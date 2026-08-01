@@ -132,7 +132,7 @@ class ComplianceAgent:
         self, query: str, limit: int, kind: DocumentKind | None = DocumentKind.STATUTE
     ) -> list[Hit]:
         async with self._db.session() as session:
-            retriever = HybridRetriever(session, self._embeddings, self._settings)
+            retriever = HybridRetriever(session, self._embeddings, self._settings, self._db)
             return await retriever.search(query, limit=limit, kind=kind)
 
     async def _retrieve_with_critic(

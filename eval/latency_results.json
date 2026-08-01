@@ -1,0 +1,17 @@
+{
+  "embed (cold cache)": {
+    "p50_ms": 31.3,
+    "p95_ms": 189.1,
+    "samples": 5
+  },
+  "embed (cached)": {
+    "p50_ms": 31.3,
+    "p95_ms": 118.6,
+    "samples": 5
+  },
+  "retrieval (end to end)": {
+    "p50_ms": 325.7,
+    "p95_ms": 895.5,
+    "samples": 10
+  }
+}
