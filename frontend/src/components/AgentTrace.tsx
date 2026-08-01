@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { ActivityIndicator } from "@/components/ActivityIndicator";
 import { Label } from "@/components/ui";
 import type { NodeStatus, TraceEvent } from "@/lib/api";
 
@@ -44,17 +45,24 @@ const COLOUR: Record<NodeStatus, string> = {
   skipped: "var(--muted)",
 };
 
-function Row({ event }: { event: TraceEvent }) {
+function Row({ event, live }: { event: TraceEvent; live?: boolean }) {
   const retrying = event.status === "retrying";
+  // The last `started` row is the step currently running. Marking it keeps the
+  // eye on the thing in flight rather than on the end of a static list.
+  const inFlight = live && event.status === "started";
 
   return (
     <li
       className="animate-in flex items-baseline gap-2.5 rounded px-2 py-1.5 font-mono text-xs"
-      style={retrying ? { background: "var(--surface-sunken)" } : undefined}
+      style={
+        retrying || inFlight
+          ? { background: "var(--surface-sunken)" }
+          : undefined
+      }
     >
       <span
         aria-hidden
-        className={`shrink-0 ${event.status === "started" ? "animate-pulse-dot" : ""}`}
+        className={`shrink-0 ${inFlight ? "animate-pulse-dot" : ""}`}
         style={{ color: COLOUR[event.status] }}
       >
         {GLYPH[event.status]}
@@ -131,18 +139,21 @@ export function AgentTrace({
 
       {/* aria-live so a screen reader hears progress rather than silence. */}
       <ol
-        className="max-h-80 space-y-0.5 overflow-y-auto p-2"
+        className={`max-h-80 space-y-0.5 overflow-y-auto ${events.length ? "p-2" : ""}`}
         aria-live="polite"
         aria-relevant="additions"
       >
         {events.map((event, index) => (
-          <Row key={`${event.node}-${index}`} event={event} />
+          <Row
+            key={`${event.node}-${index}`}
+            event={event}
+            live={running && index === events.length - 1}
+          />
         ))}
-        {running && !events.length && (
-          <li className="px-2 py-2 font-mono text-xs text-muted">Starting…</li>
-        )}
         <div ref={endRef} />
       </ol>
+
+      <ActivityIndicator events={events} running={running} />
 
       {retries > 0 && (
         <footer className="border-t px-4 py-2.5">
