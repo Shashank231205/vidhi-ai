@@ -1,35 +1,15 @@
 import type { NextConfig } from "next";
 
 /**
- * The backend runs as a separate process, but the browser only ever talks to
- * this origin: `/api/*` is proxied through to it.
+ * The browser only ever talks to this origin. `/api/*` is proxied to the
+ * backend by the route handler in `src/app/api/[...path]/route.ts` — not by a
+ * `rewrites` entry, because rewrites buffer the whole response and that
+ * defeats SSE.
  *
- * Two things fall out of that, both worth having:
- *
- * - **One URL.** In development you open localhost:3000 and everything works;
- *   there is no second port to remember or to get wrong.
- * - **No CORS.** Same-origin requests need no preflight and no allow-list, so
- *   the deployed frontend does not have to be registered with the API.
- *
- * The destination is configured, not hardcoded — in production it points at
- * the HuggingFace Space hosting the API (Vercel cannot host it: ~3GB of models
- * against a 250MB function limit, and audits that run for minutes against a
- * 10s timeout).
+ * Configure the backend with `API_ORIGIN`. It is deliberately not
+ * `NEXT_PUBLIC_`: the proxy runs server-side, so the backend URL never reaches
+ * the browser and the API is not directly addressable from it.
  */
-
-const API_ORIGIN = (
-  process.env.API_ORIGIN ?? "http://127.0.0.1:8010"
-).replace(/\/$/, "");
-
-const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${API_ORIGIN}/:path*`,
-      },
-    ];
-  },
-};
+const nextConfig: NextConfig = {};
 
 export default nextConfig;
