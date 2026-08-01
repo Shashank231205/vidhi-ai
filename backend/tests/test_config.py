@@ -13,10 +13,12 @@ def test_configured_providers_respects_failover_order() -> None:
         cerebras_api_key="c",
         openrouter_api_key="o",
     )
+    # Cerebras is last deliberately: its free tier now answers 402, so it must
+    # not sit between two working providers on the failover path.
     assert settings.configured_providers() == [
         LLMProvider.GROQ,
-        LLMProvider.CEREBRAS,
         LLMProvider.OPENROUTER,
+        LLMProvider.CEREBRAS,
     ]
 
 

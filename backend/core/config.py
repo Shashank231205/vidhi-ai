@@ -73,7 +73,10 @@ class Settings(BaseSettings):
 
     # --- LLM routing ---
     llm_provider_order: list[LLMProvider] = Field(
-        default=[LLMProvider.GROQ, LLMProvider.CEREBRAS, LLMProvider.OPENROUTER],
+        # OpenRouter before Cerebras: Cerebras' free tier now requires billing
+        # and answers 402, so keeping it second would put a dead hop between
+        # two working providers on every failover.
+        default=[LLMProvider.GROQ, LLMProvider.OPENROUTER, LLMProvider.CEREBRAS],
         description="Failover order. Exhausted left to right on rate-limit or error.",
     )
     groq_api_key: SecretStr | None = None
@@ -82,6 +85,13 @@ class Settings(BaseSettings):
 
     llm_request_timeout_s: float = 60.0
     llm_max_retries: int = 2
+    #: Longest a 429's retry-after is honoured before failing over. Groq's free
+    #: tier recovers in seconds and is much faster than the fallbacks, so a
+    #: short wait beats switching; a long one does not.
+    llm_max_retry_wait_s: float = Field(default=8.0, ge=0.0, le=60.0)
+    #: Per-provider model override, keyed by provider value. Lets a model be
+    #: swapped without a code change when a provider retires one.
+    llm_model_overrides: dict[str, str] = Field(default_factory=dict)
 
     # --- Embeddings + classifiers (HuggingFace Inference API) ---
     embedding_backend: EmbeddingBackend = EmbeddingBackend.LOCAL
@@ -101,6 +111,11 @@ class Settings(BaseSettings):
     max_grounding_attempts: int = Field(
         default=2, ge=1, le=4, description="Verifier reject-and-retry cap."
     )
+    #: How many clauses are audited at once. Clauses are independent, so this
+    #: is the main lever on audit latency; capped to stay inside provider rate
+    #: limits rather than to protect our own resources.
+    max_concurrent_clauses: int = Field(default=6, ge=1, le=20)
+
     retrieval_top_k: int = 8
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
 

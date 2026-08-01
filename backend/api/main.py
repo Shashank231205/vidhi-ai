@@ -19,10 +19,12 @@ from fastapi.responses import JSONResponse
 from api import __version__
 from api.documents import router as documents_router
 from api.routes import router as api_router
+from compliance.routes import router as compliance_router
 from core.cache import Cache
 from core.config import Settings, get_settings
 from core.db import Database
 from core.embeddings import EmbeddingService
+from core.llm import LLMRouter
 from core.logging import configure_logging, get_logger
 
 log = get_logger(__name__)
@@ -59,6 +61,9 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
         app.state.cache = cache
         app.state.embeddings = embeddings
 
+        llm = LLMRouter(settings)
+        app.state.llm = llm
+
         # Load the model now rather than making the first user wait for it.
         # Failure here is not fatal: retrieval degrades to lexical-only and
         # /ready reports it, which beats refusing to start.
@@ -76,6 +81,7 @@ def _lifespan(settings: Settings) -> Callable[[FastAPI], AbstractAsyncContextMan
         try:
             yield
         finally:
+            await llm.close()
             await embeddings.close()
             await cache.close()
             await database.dispose()
@@ -141,4 +147,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Domain routers (compliance, caselens) mount here in Phases 3 and 5.
     app.include_router(api_router)
     app.include_router(documents_router)
+    app.include_router(compliance_router)
     return app
