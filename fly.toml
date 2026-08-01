@@ -1,0 +1,54 @@
+# Fly.io configuration for the backend.
+#
+# Fly rather than HuggingFace Spaces: Spaces moved Docker behind a paid plan,
+# and Vercel cannot host this at all — its functions cap at 250MB and 10s while
+# an audit runs for minutes.
+#
+# Sizing is from measurement, not guesswork: BGE-M3 resident is 1.03GB, so a
+# 1GB machine is marginal and 2GB has headroom for the classifier and request
+# buffers. Deploy to a region near the Supabase project — a bare SELECT 1
+# from a distant client costs ~43ms, and retrieval issues two queries.
+
+app = "vidhi-ai-api"
+primary_region = "bom"                  # Mumbai, alongside Supabase ap-south-1
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  PORT = "8080"
+  # One worker: the model is loaded per process, so a second would double
+  # resident memory for no throughput gain on a shared CPU.
+  WEB_CONCURRENCY = "1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stopping idle machines is what keeps this inside the free allowance. The
+  # wake costs ~20s while the model loads, which is acceptable for a demo and
+  # avoidable with min_machines_running = 1 if it is not.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    # An audit holds its connection open for minutes, so the limit is about
+    # memory rather than throughput.
+    soft_limit = 12
+    hard_limit = 20
+
+# Readiness rather than liveness: /ready probes Postgres, so Fly stops routing
+# to a machine whose database connection is broken. /health would answer 200
+# in that state, since it deliberately makes no network calls.
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "10s"
+  grace_period = "90s"                  # model load takes ~20s from cold
+  method = "GET"
+  path = "/ready"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"

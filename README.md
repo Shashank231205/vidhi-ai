@@ -88,7 +88,7 @@ makes two queries. Co-locating the API with the database recovers most of it.
 ## How it works
 
 ```
-Next.js (Vercel) ──proxies /api/*──► FastAPI (HF Spaces, 16GB)
+Next.js (Vercel) ──proxies /api/*──► FastAPI (Fly.io, Mumbai)
                                             │
               ┌─────────────────────────────┴──────────────────┐
               │ chunking · embeddings · hybrid retrieval        │
@@ -197,10 +197,10 @@ scripts/        corpus ingestion
 |---|---|---|
 | Database | Supabase Postgres + pgvector | free |
 | Cache | Upstash Redis | free |
-| LLM | Groq → OpenRouter → Cerebras | free |
+| LLM | 6-model pool: Groq ×5 + OpenRouter | free |
 | Embeddings | BGE-M3, in-process | free |
 | Classifier | DistilBERT fine-tuned on CUAD | free |
-| API host | HuggingFace Spaces (Docker) | free |
+| API host | Fly.io (Docker, Mumbai) | free tier |
 | Frontend host | Vercel | free |
 
 Total infrastructure cost: **₹0**.
@@ -209,44 +209,38 @@ Total infrastructure cost: **₹0**.
 
 ## Deployment
 
-The two halves deploy to different hosts, and they have to: Vercel's
-serverless functions cap at 250MB and 10s, while the backend holds ~3GB of
-models and an audit runs for minutes.
+The two halves deploy separately, and they have to: Vercel's functions cap at
+250MB and 10s, while the backend holds a 1.03GB embedding model resident and an
+audit runs for minutes.
 
-**Backend → HuggingFace Spaces** (Docker SDK, CPU basic). Set these as Space
-secrets:
-
-```
-DATABASE_URL          Supabase transaction pooler, port 6543
-UPSTASH_REDIS_URL     REST endpoint
-UPSTASH_REDIS_TOKEN
-GROQ_API_KEY
-OPENROUTER_API_KEY    optional second provider
-ENVIRONMENT           production
-```
+**Backend → Fly.io.** One command, after `brew install flyctl && flyctl auth login`:
 
 ```bash
-git remote add space https://huggingface.co/spaces/<user>/vidhi-ai-api
-git push space main
+./deploy.sh
 ```
 
-The first build takes 10–15 minutes: it installs CPU-only Torch and bakes the
-embedding model into the image, so a sleeping Space wakes in seconds rather
-than minutes.
+It creates the app, pushes the credentials from `backend/.env` as Fly secrets —
+so they never enter git — deploys, and verifies `/health` and `/ready`. Later
+deploys are `./deploy.sh --update`.
+
+Sizing in `fly.toml` is measured rather than guessed: 2GB against a 1.03GB
+model, in Mumbai alongside the Supabase project, with idle machines stopped to
+stay inside the free allowance. A cold wake costs ~20s while the model loads;
+set `min_machines_running = 1` to avoid it.
 
 **Frontend → Vercel**, with one environment variable:
 
 ```
-API_ORIGIN = https://<user>-vidhi-ai-api.hf.space
+API_ORIGIN = https://vidhi-ai-api.fly.dev
 ```
 
 Not `NEXT_PUBLIC_` — the proxy runs server-side, so the backend URL never
 reaches the browser.
 
-Two things that otherwise cost an hour: use the **pooler** connection string
-(port 6543), not the direct one, and **percent-encode** special characters in
-the database password (`@` → `%40`), or it is read as the host separator and
-fails with a misleading auth error.
+Two things that otherwise cost an hour: use the Supabase **pooler** connection
+string (port 6543), not the direct one, and **percent-encode** special
+characters in the password (`@` → `%40`), or it is read as the host separator
+and fails with a misleading auth error.
 
 ---
 
@@ -265,5 +259,7 @@ fails with a misleading auth error.
 - **High-risk recall is 0.715.** The classifier misses roughly a quarter of
   high-risk clauses, which is why it defers to the LLM below a confidence
   threshold rather than overriding it.
-- **Free tiers bind.** Groq allows 12k tokens/min, and HF Spaces sleep after
-  inactivity.
+- **Free tiers bind.** Each Groq model allows 12k tokens/min, which is why the
+  router pools six models rather than relying on one. Fly machines stop when
+  idle to stay inside the free allowance, so a cold request waits ~20s for the
+  model to load.

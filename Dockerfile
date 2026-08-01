@@ -1,9 +1,9 @@
-# Backend image, built for HuggingFace Spaces.
+# Backend image.
 #
-# Spaces is the deployment target because it is the only free tier that fits:
-# BGE-M3 is ~2.2GB resident and the risk classifier another ~268MB, against
-# Vercel's 250MB function limit and Render's 512MB free instance. Spaces gives
-# 16GB and 2 vCPU at no cost.
+# Deployed to Fly.io (see fly.toml). Vercel cannot host this — its functions cap
+# at 250MB unzipped and 10s of execution, while this process holds a 1.03GB
+# embedding model resident and an audit runs for minutes. HuggingFace Spaces was
+# the original target but moved Docker behind a paid plan.
 #
 # The model is baked into the image rather than downloaded on boot. A Space
 # sleeps after inactivity, and pulling 2.2GB on every wake would put a
@@ -86,9 +86,10 @@ PRUNE
 
 WORKDIR /app/backend
 
-# Spaces routes to 7860 by convention.
-ENV PORT=7860
-EXPOSE 7860
+# Overridden by the host: Fly sets 8080, HuggingFace Spaces uses 7860. The
+# CMD reads ${PORT}, so the image works on either without a rebuild.
+ENV PORT=8080
+EXPOSE 8080
 
 # The container is healthy once /health answers, which needs no database — a
 # slow upstream must not cause a restart loop.
