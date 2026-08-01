@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 
 from api import __version__
-from core.config import Environment, Settings, get_settings
+from core.config import EmbeddingBackend, Environment, Settings, get_settings
 from core.db import Database
 
 router = APIRouter(tags=["health"])
@@ -69,10 +69,16 @@ async def health(
             f"failover order: {', '.join(providers)}",
             "no provider API key set",
         ),
+        # Only the remote backend needs a token. Reporting the local one as
+        # degraded for a missing HF_API_TOKEN made a correctly-configured
+        # deployment look broken — the model is baked into the image and never
+        # contacts the Hub.
         "embeddings": _report(
-            bool(settings.hf_api_token.get_secret_value()),
-            f"{settings.embedding_model} ({settings.embedding_dimensions}d)",
-            "HF_API_TOKEN missing",
+            settings.embedding_backend is EmbeddingBackend.LOCAL
+            or bool(settings.hf_api_token.get_secret_value()),
+            f"{settings.embedding_model} ({settings.embedding_dimensions}d, "
+            f"{settings.embedding_backend.value})",
+            "HF_API_TOKEN missing (required for the remote backend)",
         ),
     }
 
