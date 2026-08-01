@@ -1,0 +1,106 @@
+{
+  "description": "Hand-built retrieval eval for the Digital Personal Data Protection Act, 2023. Each query is phrased the way a user would ask it, not the way the statute is written — that gap is what the retriever has to close. Relevant sections were identified by reading the Act.",
+  "source_ref": "DPDP-2023",
+  "queries": [
+    {
+      "id": "notice-before-consent",
+      "query": "What must a company tell me before asking for my consent?",
+      "relevant_sections": ["Section 5"]
+    },
+    {
+      "id": "consent-requirements",
+      "query": "What makes consent valid under the Act?",
+      "relevant_sections": ["Section 6"]
+    },
+    {
+      "id": "withdraw-consent",
+      "query": "Can I withdraw my consent after giving it?",
+      "relevant_sections": ["Section 6"]
+    },
+    {
+      "id": "children-data",
+      "query": "processing personal data of a child",
+      "relevant_sections": ["Section 9"]
+    },
+    {
+      "id": "children-tracking",
+      "query": "Is behavioural tracking or targeted advertising to children allowed?",
+      "relevant_sections": ["Section 9"]
+    },
+    {
+      "id": "breach-notification",
+      "query": "Does a company have to tell me if there is a data breach?",
+      "relevant_sections": ["Section 8"]
+    },
+    {
+      "id": "security-safeguards",
+      "query": "What security measures must a data fiduciary implement?",
+      "relevant_sections": ["Section 8"]
+    },
+    {
+      "id": "penalties",
+      "query": "penalty for failing to prevent a data breach",
+      "relevant_sections": ["Section 33"]
+    },
+    {
+      "id": "right-to-erasure",
+      "query": "Can I ask a company to delete my personal data?",
+      "relevant_sections": ["Section 12"]
+    },
+    {
+      "id": "right-to-information",
+      "query": "What information can I request about how my data is processed?",
+      "relevant_sections": ["Section 11"]
+    },
+    {
+      "id": "grievance-redressal",
+      "query": "How do I complain if a company misuses my data?",
+      "relevant_sections": ["Section 13"]
+    },
+    {
+      "id": "nominate",
+      "query": "Can someone exercise my data rights if I die or become incapacitated?",
+      "relevant_sections": ["Section 14"]
+    },
+    {
+      "id": "significant-fiduciary",
+      "query": "What extra obligations apply to a Significant Data Fiduciary?",
+      "relevant_sections": ["Section 10"]
+    },
+    {
+      "id": "cross-border",
+      "query": "Can personal data be transferred outside India?",
+      "relevant_sections": ["Section 16"]
+    },
+    {
+      "id": "legitimate-uses",
+      "query": "When can data be processed without consent?",
+      "relevant_sections": ["Section 7"]
+    },
+    {
+      "id": "definitions-personal-data",
+      "query": "What counts as personal data?",
+      "relevant_sections": ["Section 2"]
+    },
+    {
+      "id": "data-principal-duties",
+      "query": "What are my duties as a data principal?",
+      "relevant_sections": ["Section 15"]
+    },
+    {
+      "id": "board-powers",
+      "query": "What powers does the Data Protection Board have?",
+      "relevant_sections": ["Section 27", "Section 28"]
+    },
+    {
+      "id": "appeal",
+      "query": "How do I appeal a decision of the Board?",
+      "relevant_sections": ["Section 29"]
+    },
+    {
+      "id": "exemptions",
+      "query": "Which organisations are exempt from this Act?",
+      "relevant_sections": ["Section 17"]
+    }
+  ]
+}

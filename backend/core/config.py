@@ -89,6 +89,22 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 8
     rrf_k: int = 60  # Reciprocal Rank Fusion constant
 
+    #: Fusion weights, chosen by sweeping both against the DPDP eval set rather
+    #: than by intuition. On this corpus BGE-M3 dominates: equal weighting
+    #: scored *below* vector alone (MRR 0.633 vs 0.842), because the lexical
+    #: arm's weak tail outvoted confident vector hits. A small lexical
+    #: contribution over only its top few results is the measured optimum —
+    #: recall@5 rises 0.875 → 0.925 for ~0.01 MRR, i.e. it surfaces relevant
+    #: sections the vector arm misses without disturbing the ranking.
+    #:
+    #: These are corpus-dependent. Re-run eval/retrieval_eval.py after adding a
+    #: statute or changing the embedding model.
+    rrf_vector_weight: float = 1.0
+    rrf_lexical_weight: float = 0.1
+    #: Depth cap for the lexical arm; past its top few, OR-matched results
+    #: share only common words and add noise.
+    lexical_candidate_limit: int = 3
+
     @field_validator("llm_provider_order")
     @classmethod
     def _non_empty(cls, v: list[LLMProvider]) -> list[LLMProvider]:

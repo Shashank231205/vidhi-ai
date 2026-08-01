@@ -142,11 +142,19 @@ class ChunkRepository:
         )
         return result.scalars().all()
 
-    async def pending_embedding(self, *, limit: int = 128) -> Sequence[Chunk]:
-        """Chunks whose text has landed but whose vector has not."""
-        result = await self._session.execute(
-            select(Chunk).where(Chunk.embedding.is_(None)).limit(limit)
-        )
+    async def pending_embedding(
+        self, *, limit: int = 128, document_id: uuid.UUID | None = None
+    ) -> Sequence[Chunk]:
+        """Chunks whose text has landed but whose vector has not.
+
+        Filtering happens in the query rather than in the caller: a post-filter
+        would let unrelated pending rows fill the batch and stall a
+        document-scoped backfill indefinitely.
+        """
+        stmt = select(Chunk).where(Chunk.embedding.is_(None))
+        if document_id is not None:
+            stmt = stmt.where(Chunk.document_id == document_id)
+        result = await self._session.execute(stmt.limit(limit))
         return result.scalars().all()
 
     async def set_embeddings(self, embeddings: dict[uuid.UUID, list[float]]) -> int:
