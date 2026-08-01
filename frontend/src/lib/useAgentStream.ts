@@ -23,7 +23,14 @@ interface Options<T> {
   onResult?: (result: T) => void;
 }
 
-/** Split an SSE frame into its `event:` and `data:` parts. */
+/**
+ * Split an SSE frame into its `event:` and `data:` parts.
+ *
+ * Line endings are normalised first. The SSE spec allows CR, LF, or CRLF, and
+ * sse-starlette emits CRLF — splitting on "\n\n" alone silently matched
+ * nothing, so every event accumulated in the buffer and the UI sat on
+ * "Starting…" while the audit ran to completion behind it.
+ */
 function parseFrame(frame: string): { event: string; data: string } | null {
   let event = "message";
   const data: string[] = [];
@@ -34,6 +41,11 @@ function parseFrame(frame: string): { event: string; data: string } | null {
   }
 
   return data.length ? { event, data: data.join("\n") } : null;
+}
+
+/** Normalise CRLF and bare CR to LF so frame splitting is unambiguous. */
+function normaliseNewlines(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 export function useAgentStream<T>(path: string, options: Options<T> = {}) {
@@ -92,7 +104,7 @@ export function useAgentStream<T>(path: string, options: Options<T> = {}) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+          buffer += normaliseNewlines(decoder.decode(value, { stream: true }));
 
           // Frames are separated by a blank line. The last segment may be a
           // partial frame, so it stays in the buffer until the next read.
