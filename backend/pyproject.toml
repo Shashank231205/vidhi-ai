@@ -1,0 +1,62 @@
+[project]
+name = "vidhi-ai"
+version = "0.1.0"
+description = "Unified AI legal platform for Indian law"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi>=0.118",
+    "uvicorn[standard]>=0.37",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.7",
+    "httpx>=0.28",
+    "sse-starlette>=2.2",
+    # data layer
+    "asyncpg>=0.30",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "pgvector>=0.3.6",
+    "alembic>=1.14",
+    # agents
+    "langgraph>=0.3",
+    "langchain-core>=0.3",
+    # cache
+    "upstash-redis>=1.2",
+    # ingestion
+    "pypdf>=5.1",
+    "python-multipart>=0.0.20",
+    "structlog>=25.1",
+    "tenacity>=9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "respx>=0.22",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC"]
+ignore = ["A003"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pgvector.*", "upstash_redis.*", "langgraph.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
