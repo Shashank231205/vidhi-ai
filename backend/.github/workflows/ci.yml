@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Credentials and build artifacts must never enter history. Catching it
+      # here is cheap; scrubbing it from pushed history is not.
+      - name: No secrets or build artifacts committed
+        run: |
+          if git ls-files | grep -vFx '.env.example' | grep -E '(^|/)\.env'; then
+            echo "::error::A .env file is tracked. Remove it and rotate the credentials."
+            exit 1
+          fi
+          if git ls-files | grep -E '(__pycache__|\.venv/|\.mypy_cache|\.ruff_cache|\.pytest_cache|egg-info|node_modules/|\.DS_Store)'; then
+            echo "::error::Build artifacts or caches are tracked. Add them to .gitignore."
+            exit 1
+          fi
+          if git grep -InE '(gsk_[A-Za-z0-9]{20}|sk-[A-Za-z0-9]{20}|hf_[A-Za-z0-9]{20}|gh[pousr]_[A-Za-z0-9]{20}|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY)' -- .; then
+            echo "::error::A live credential appears to be committed. Rotate it immediately."
+            exit 1
+          fi
+          echo "Clean: no .env, no caches, no credential-shaped strings."
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+
+      - run: uv sync --extra dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Typecheck
+        run: uv run mypy api core tests
+
+      # The suite is hermetic — it builds Settings explicitly and makes no
+      # network calls, so no secrets are needed here.
+      - name: Test
+        run: uv run pytest -q --cov=api --cov=core --cov-report=term-missing
+
+      # The groundedness harness needs no credentials — it runs the verifier
+      # against planted fabrications in memory. Gating on it means a change
+      # that weakens verification fails the build rather than being noticed
+      # later in an eval run nobody remembered to trigger.
+      - name: Groundedness
+        run: uv run python ../eval/groundedness_eval.py

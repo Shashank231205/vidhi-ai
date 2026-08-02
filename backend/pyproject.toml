@@ -75,6 +75,15 @@ plugins = ["pydantic.mypy"]
 module = ["pgvector.*", "upstash_redis.*", "langgraph.*"]
 ignore_missing_imports = true
 
+# Optional extras, imported only under TYPE_CHECKING. Neither is installed in
+# CI or in the deployed image — sentence-transformers belongs to
+# `local-embeddings` and transformers to `ml`, and both pull torch, which is
+# ~2.5GB. Without this mypy fails on a base install, which is the install every
+# environment except a training box actually uses.
+[[tool.mypy.overrides]]
+module = ["sentence_transformers.*", "transformers.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
