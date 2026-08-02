@@ -1,0 +1,42 @@
+# Render blueprint for the backend.
+#
+# Render rather than Cloud Run, Fly.io, or HuggingFace Spaces: all three needed
+# either a paid plan, an open billing account, or an image push that failed at
+# ~9GB. Render's free tier takes this image and needs only a GitHub login.
+#
+# The free instance has 512MB of RAM, which works because the embedding model is
+# no longer resident: EMBEDDING_BACKEND=remote calls BGE-M3 over the HuggingFace
+# API and returns the same 1024-dim vectors the corpus was built with.
+#
+# Secrets are marked sync: false, so Render prompts for them once in the
+# dashboard and stores them encrypted rather than reading them from this file.
+
+services:
+  - type: web
+    name: vidhi-ai
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore # closest Render region to the Supabase project in Mumbai
+    healthCheckPath: /health # not /ready: a slow database must not cause a restart loop
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: EMBEDDING_BACKEND
+        value: remote
+
+      # Supplied in the dashboard, never in git.
+      - key: DATABASE_URL
+        sync: false
+      - key: UPSTASH_REDIS_URL
+        sync: false
+      - key: UPSTASH_REDIS_TOKEN
+        sync: false
+      - key: HF_API_TOKEN # required: the remote embedding backend authenticates with it
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false

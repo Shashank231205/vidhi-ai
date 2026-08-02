@@ -2476,7 +2476,6 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pypdf" },
     { name = "python-multipart" },
-    { name = "sentence-transformers" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sse-starlette" },
     { name = "structlog" },
@@ -2493,6 +2492,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "respx" },
     { name = "ruff" },
+]
+local-embeddings = [
+    { name = "sentence-transformers" },
 ]
 ml = [
     { name = "accelerate" },
@@ -2524,7 +2526,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.6" },
-    { name = "sentence-transformers", specifier = ">=3.3" },
+    { name = "sentence-transformers", marker = "extra == 'local-embeddings'", specifier = ">=3.3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "sse-starlette", specifier = ">=2.2" },
     { name = "structlog", specifier = ">=25.1" },
@@ -2532,7 +2534,7 @@ requires-dist = [
     { name = "upstash-redis", specifier = ">=1.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.37" },
 ]
-provides-extras = ["dev", "ml"]
+provides-extras = ["local-embeddings", "dev", "ml"]
 
 [[package]]
 name = "watchfiles"

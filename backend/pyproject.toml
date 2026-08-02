@@ -26,10 +26,17 @@ dependencies = [
     "python-multipart>=0.0.20",
     "structlog>=25.1",
     "tenacity>=9.0",
-    "sentence-transformers>=3.3",
 ]
 
 [project.optional-dependencies]
+# Only for EMBEDDING_BACKEND=local. It pulls torch, which is ~2.5GB installed
+# and drags a 2.2GB model download on top — the deployed image is ~9GB with it
+# and ~400MB without. Both backends call the same BGE-M3 weights and produce
+# identical 1024-dim vectors, so a corpus embedded by one is valid for the
+# other; the deployment uses the remote backend and skips this entirely.
+local-embeddings = [
+    "sentence-transformers>=3.3",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",

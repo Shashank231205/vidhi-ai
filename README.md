@@ -45,14 +45,23 @@ text that starts verbatim then continues into invention.
 
 | Retriever | P@5 | R@5 | MRR | Hit rate |
 |---|---|---|---|---|
-| Vector only | 0.410 | 0.875 | **0.842** | 0.90 |
-| Lexical only | 0.100 | 0.300 | 0.250 | 0.30 |
-| **Hybrid (RRF)** | 0.410 | **0.925** | 0.833 | **0.95** |
+| Vector only | 0.330 | 0.725 | 0.725 | 0.750 |
+| Lexical only | 0.070 | 0.250 | 0.167 | 0.250 |
+| **Hybrid (RRF)** | **0.340** | **0.775** | **0.742** | **0.800** |
 
 Hybrid earns its place on recall, not ranking: it surfaces provisions the dense
-arm misses entirely (misses 4 → 1) at no precision cost. Equal-weight fusion
-initially scored *below* vector alone; the weights were swept against this set
-rather than guessed, and the reasoning is recorded in `core/config.py`.
+arm misses entirely at no precision cost. Equal-weight fusion initially scored
+*below* vector alone; the weights were swept against this set rather than
+guessed, and the reasoning is recorded in `core/config.py`.
+
+These are lower than the 0.925 R@5 recorded when the set was written, and the
+cause is the corpus, not the retriever: it grew from ~200 DPDP chunks to 9,216
+across 153 documents, so every query now competes against far more plausible
+text. The queries are also scored by exact section label, which counts a hit on
+`Section 5(iii)` as a miss for `Section 5` — real misses and label mismatches
+are not currently distinguished.
+
+Identical on both embedding backends, since they call the same model.
 
 ### Risk classifier — `ml/risk_classifier/`
 
@@ -74,7 +83,8 @@ transformer.
 
 | Stage | p50 | p95 |
 |---|---|---|
-| Query embedding (local BGE-M3) | 27ms | 119ms |
+| Query embedding (BGE-M3, local) | 27ms | 119ms |
+| Query embedding (BGE-M3, remote API) | 376ms | — |
 | Hybrid retrieval, end to end | 314ms | 349ms |
 | LLM first token | 316ms | 356ms |
 
@@ -88,7 +98,7 @@ makes two queries. Co-locating the API with the database recovers most of it.
 ## How it works
 
 ```
-Next.js (Vercel) ──proxies /api/*──► FastAPI (Fly.io, Mumbai)
+Next.js (Vercel) ──proxies /api/*──► FastAPI (Render, Singapore)
                                             │
               ┌─────────────────────────────┴──────────────────┐
               │ chunking · embeddings · hybrid retrieval        │
@@ -173,7 +183,7 @@ make web-build  # frontend lint + production build
 make format     # ruff format and autofix
 ```
 
-123 unit tests run without credentials; integration tests skip unless
+141 unit tests run without credentials; integration tests skip unless
 `DATABASE_URL` is set. A pre-push hook runs the same gates CI does, because a
 red `main` is worse than a slow push.
 
@@ -200,7 +210,7 @@ scripts/        corpus ingestion
 | LLM | 6-model pool: Groq ×5 + OpenRouter | free |
 | Embeddings | BGE-M3, in-process | free |
 | Classifier | DistilBERT fine-tuned on CUAD | free |
-| API host | Fly.io (Docker, Mumbai) | free tier |
+| API host | Render (Docker, Singapore) | free tier |
 | Frontend host | Vercel | free |
 
 Total infrastructure cost: **₹0**.
@@ -213,33 +223,35 @@ The two halves deploy separately, and they have to: Vercel's functions cap at
 250MB and 10s, while the backend holds a 1.03GB embedding model resident and an
 audit runs for minutes.
 
-**Backend → Google Cloud Run.** One command, after `gcloud auth login` and
-`gcloud config set project <your-project>`:
+**Backend → Render**, from `render.yaml`. Run `./deploy.sh` to print the
+environment variables to paste, then create a Blueprint Instance pointed at this
+repo in the Render dashboard. There is no CLI step and no billing account.
 
-```bash
-./deploy.sh
-```
+Render rather than Cloud Run, Fly.io, or HuggingFace Spaces, all of which were
+tried first: Spaces moved Docker behind a paid plan, Fly's registry push died on
+export, and Cloud Run refuses to enable its API without an open billing account.
+The common cause was image size — ~9GB, with BGE-M3's weights and torch baked
+in.
 
-It enables the required APIs, stores the credentials from `backend/.env` in
-Secret Manager — so they never enter git and are not readable from the service
-spec — builds, deploys, and verifies `/health` and `/ready`. Later deploys are
-`./deploy.sh --update`.
+So the model moved out of the image. `EMBEDDING_BACKEND=remote` calls BGE-M3
+over the HuggingFace Inference API instead of loading it in-process: same model,
+same 1024-dim vectors, same corpus, and measurably the same retrieval quality
+(P@5 0.340, R@5 0.775, MRR 0.742, hit-rate 0.80 on both backends). The image
+falls from 9.32GB to 812MB, which fits Render's free 512MB instance because the
+2.2GB model is no longer resident.
 
-Cloud Run rather than Fly.io or HuggingFace Spaces, both of which were tried
-first: Spaces moved Docker behind a paid plan, and Fly's registry push failed on
-export because the image is ~9GB with BGE-M3's weights baked in. Cloud Run
-states no limit on image size and streams images block-by-block at boot, so the
-size costs little at startup.
+The cost is latency: ~376ms per query against ~27ms in-process. Embedding cache
+entries are content-addressed and keyed by model, so repeated queries skip the
+call. The free instance also sleeps after 15 minutes idle and takes ~1 minute to
+wake.
 
-Sizing is measured rather than guessed: 4GB against a 2.2GB resident model, 2
-vCPU with startup boost, in Mumbai alongside the Supabase project, scaling to
-zero so an idle service costs nothing. A cold start pays the model load; set
-`--min-instances 1` to avoid it, at the cost of leaving the free allowance.
+For local development, `EMBEDDING_BACKEND=local` still runs the model in-process
+and is faster; install it with `uv pip install -e '.[local-embeddings]'`.
 
 **Frontend → Vercel**, with one environment variable:
 
 ```
-API_ORIGIN = https://<service>-<hash>.asia-south1.run.app
+API_ORIGIN = https://<your-service>.onrender.com
 ```
 
 Not `NEXT_PUBLIC_` — the proxy runs server-side, so the backend URL never
@@ -268,6 +280,6 @@ and fails with a misleading auth error.
   high-risk clauses, which is why it defers to the LLM below a confidence
   threshold rather than overriding it.
 - **Free tiers bind.** Each Groq model allows 12k tokens/min, which is why the
-  router pools six models rather than relying on one. Fly machines stop when
-  idle to stay inside the free allowance, so a cold request waits ~20s for the
-  model to load.
+  router pools six models rather than relying on one. The free API instance
+  sleeps after 15 minutes idle, so a cold request waits ~1 minute for it to
+  wake.

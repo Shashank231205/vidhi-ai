@@ -82,7 +82,19 @@ class LocalBackend(EmbeddingBackendProtocol):
                 return existing
 
             log.info("loading_local_embedding_model", model=self._model_name)
-            from sentence_transformers import SentenceTransformer
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:  # pragma: no cover - depends on install extras
+                # The deployed image omits this extra deliberately, so the
+                # likely cause is EMBEDDING_BACKEND=local in an environment
+                # built for the remote backend. Say that, rather than let a
+                # bare ImportError suggest a broken install.
+                raise EmbeddingError(
+                    "EMBEDDING_BACKEND=local needs sentence-transformers, which is not "
+                    "installed. Either install it (`uv pip install -e '.[local-embeddings]'`) "
+                    "or set EMBEDDING_BACKEND=remote, which uses the same model over the "
+                    "HuggingFace API and produces identical vectors."
+                ) from exc
 
             loaded: SentenceTransformer = await asyncio.to_thread(
                 SentenceTransformer, self._model_name
