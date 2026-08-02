@@ -1,6 +1,8 @@
 """LLM routing: failover, JSON recovery, and schema enforcement."""
 
+import asyncio
 import json
+import time
 from collections.abc import Callable
 
 import httpx
@@ -316,3 +318,71 @@ async def test_long_rate_limit_fails_over_instead_of_waiting() -> None:
     result = await router.complete([{"role": "user", "content": "x"}])
 
     assert result.provider is LLMProvider.OPENROUTER
+
+
+async def test_slow_model_is_abandoned_for_the_next_one() -> None:
+    """A model that stalls must not hold the call for the request timeout.
+
+    The pool's value is that another model is usually idle, so the router
+    should give up on a silent model quickly rather than wait it out. Without
+    the per-attempt bound this test hangs for the full request timeout.
+    """
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        if "groq" in request.url.host:
+            # Far longer than the attempt budget, and longer than the test
+            # would tolerate if the bound were not enforced.
+            await asyncio.sleep(30)
+        return httpx.Response(200, json=completion_body("from the idle model"))
+
+    settings = build_settings(openrouter_api_key="or-key", llm_attempt_timeout_s=2.0)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    router = LLMRouter(settings, client=client)
+
+    started = time.perf_counter()
+    result = await router.complete([{"role": "user", "content": "x"}])
+    elapsed = time.perf_counter() - started
+
+    assert result.text == "from the idle model"
+    assert result.provider is LLMProvider.OPENROUTER
+    # Bounded by the attempt budget per stalled model, not by the 30s sleep.
+    assert elapsed < 25, f"waited {elapsed:.1f}s; the per-attempt bound did not fire"
+    assert any("groq" in host for host in seen), "the slow model should still be tried first"
+
+
+async def test_a_timed_out_model_is_parked() -> None:
+    """A stalled model is skipped by later calls rather than re-timing-out.
+
+    Otherwise every concurrent clause pays the same timeout independently to
+    learn what the first one already discovered.
+    """
+    attempts: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        model = str(request.read().decode())
+        attempts.append(model)
+        # Exactly one model stalls, and only the first time it is asked.
+        if (
+            "llama-3.3-70b-versatile" in model
+            and sum("llama-3.3-70b-versatile" in a for a in attempts) == 1
+        ):
+            await asyncio.sleep(30)
+        return httpx.Response(200, json=completion_body("ok"))
+
+    settings = build_settings(openrouter_api_key="or-key", llm_attempt_timeout_s=2.0)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    router = LLMRouter(settings, client=client)
+
+    # Enough calls that the rotation would revisit the stalled model if it had
+    # not been parked.
+    started = time.perf_counter()
+    for _ in range(6):
+        await router.complete([{"role": "user", "content": "x"}])
+    elapsed = time.perf_counter() - started
+
+    stalled = sum("llama-3.3-70b-versatile" in a for a in attempts)
+    assert stalled == 1, f"the parked model was retried {stalled} times"
+    # One timeout total, not one per call.
+    assert elapsed < 12, f"took {elapsed:.1f}s; the park did not hold"

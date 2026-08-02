@@ -265,18 +265,39 @@ class LLMRouter:
         """One request to one model. Never raises for an expected failure."""
         provider = target.provider
         try:
-            response = await self._client.post(
-                f"{PROVIDER_BASE_URL[provider]}/chat/completions",
-                headers=self._headers(provider),
-                json=self._payload(
-                    target,
-                    messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    json_mode=json_mode,
-                    stream=False,
+            # Bounded per attempt, not just per request. The pool's whole value
+            # is that another model is usually idle, so waiting out a slow one
+            # is strictly worse than moving on — a model that has not answered
+            # in `llm_attempt_timeout_s` is treated as failed and the next is
+            # tried immediately. Without this a single degraded model could
+            # hold a clause for the full request timeout while five others sat
+            # free.
+            response = await asyncio.wait_for(
+                self._client.post(
+                    f"{PROVIDER_BASE_URL[provider]}/chat/completions",
+                    headers=self._headers(provider),
+                    json=self._payload(
+                        target,
+                        messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        json_mode=json_mode,
+                        stream=False,
+                    ),
                 ),
+                timeout=self._settings.llm_attempt_timeout_s,
             )
+        except TimeoutError:
+            log.warning(
+                "llm_attempt_timeout",
+                model=target.id,
+                seconds=self._settings.llm_attempt_timeout_s,
+            )
+            # Parked briefly: a model that just timed out is likely saturated,
+            # and concurrent clauses should skip it rather than each spending
+            # the same timeout discovering that independently.
+            self._park(target, self._settings.llm_attempt_timeout_s)
+            return _Failure(f"{target.id}: timed out", retryable=True)
         except httpx.HTTPError as exc:
             log.warning("llm_transport_error", provider=provider.value, error=str(exc))
             return _Failure(f"{provider}: {type(exc).__name__}", retryable=True)
@@ -414,6 +435,16 @@ class LLMRouter:
                         json_mode=False,
                         stream=True,
                     ),
+                    # Bounds the wait for response headers only. The read
+                    # timeout stays at the client default: once tokens are
+                    # flowing a long generation is legitimate, and the
+                    # `started` guard means a mid-stream failure propagates
+                    # rather than silently switching models.
+                    timeout=httpx.Timeout(
+                        self._settings.llm_request_timeout_s,
+                        connect=self._settings.llm_attempt_timeout_s,
+                        pool=self._settings.llm_attempt_timeout_s,
+                    ),
                 ) as response:
                     if response.status_code != 200:
                         await response.aread()
@@ -437,6 +468,18 @@ class LLMRouter:
                             started = True
                             yield content
                     return
+            except TimeoutError:
+                # Only reachable before the first token — see the guard on the
+                # connection below. A model that has not started producing
+                # within the attempt budget is stalled, and another is free.
+                log.warning(
+                    "llm_stream_timeout",
+                    model=target.id,
+                    seconds=self._settings.llm_attempt_timeout_s,
+                )
+                self._park(target, self._settings.llm_attempt_timeout_s)
+                errors.append(f"{target.id}: timed out before first token")
+                continue
             except httpx.HTTPError as exc:
                 if started:
                     raise LLMError(f"stream interrupted: {exc}") from exc

@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
 
     llm_request_timeout_s: float = 60.0
+    #: How long one model gets before the next is tried.
+    #:
+    #: Distinct from llm_request_timeout_s, which bounds the HTTP client. With
+    #: six models pooled, another is almost always idle, so waiting on a slow
+    #: one costs more than switching: a stalled model used to hold a clause for
+    #: the full request timeout while five others sat free. 10s is comfortably
+    #: above the measured p95 first-token latency (~356ms) and well above the
+    #: slowest pooled model's typical completion, so this fires on genuine
+    #: stalls rather than on normal variance.
+    llm_attempt_timeout_s: float = Field(default=10.0, ge=2.0, le=60.0)
     llm_max_retries: int = 2
     #: Longest a 429's retry-after is honoured before failing over. Groq's free
     #: tier recovers in seconds and is much faster than the fallbacks, so a
