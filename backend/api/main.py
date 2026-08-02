@@ -106,6 +106,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_lifespan(settings),
         docs_url="/docs" if settings.is_local else None,
         redoc_url=None,
+        # Gated alongside /docs. Disabling only the UI still served the full
+        # schema at /openapi.json — every route, parameter and model — which is
+        # a map of the API for anyone scanning a deployment that is public by
+        # design.
+        openapi_url="/openapi.json" if settings.is_local else None,
     )
 
     app.add_middleware(

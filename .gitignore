@@ -28,6 +28,11 @@ ml/*/checkpoints/
 *.safetensors
 *.bin
 
+# Downloaded corpus. Statute PDFs and judgment dumps land here and run to
+# hundreds of MB; they are re-fetchable from scripts/ingest_*.py, and the
+# ingested text lives in Postgres rather than in git.
+data/
+
 # Editor / OS
 .DS_Store
 .idea/
