@@ -1,26 +1,32 @@
 # Backend image.
 #
-# Deployed to Fly.io (see fly.toml). Vercel cannot host this — its functions cap
-# at 250MB unzipped and 10s of execution, while this process holds a 1.03GB
-# embedding model resident and an audit runs for minutes. HuggingFace Spaces was
-# the original target but moved Docker behind a paid plan.
+# Deployed to Google Cloud Run (see deploy.sh). Vercel cannot host this — its
+# functions cap at 250MB unzipped and 10s of execution, while this process holds
+# a 2.2GB embedding model resident and an audit runs for minutes.
 #
-# The model is baked into the image rather than downloaded on boot. A Space
-# sleeps after inactivity, and pulling 2.2GB on every wake would put a
-# multi-minute stall in front of the first request instead of ~30s.
+# Two earlier targets failed: HuggingFace Spaces moved Docker behind a paid
+# plan, and Fly.io's registry push died on export after 158s because the image
+# is ~9GB. Cloud Run states no limit on image size and streams images
+# block-by-block at boot, so a large image starts in roughly the time a small
+# one does.
+#
+# The model is baked into the image rather than downloaded on boot. The service
+# scales to zero, and pulling 2.2GB from the Hub on every cold start would put a
+# multi-minute stall in front of the first request.
 
 FROM python:3.12-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    # Spaces runs as a non-root user with only /home writable, so every cache
-    # HuggingFace and Torch use has to live there or the build fails at runtime.
+    # The container runs as a non-root user with only /home writable, so every
+    # cache HuggingFace and Torch use has to live there or the build fails at
+    # runtime.
     HF_HOME=/home/user/.cache/huggingface \
     TORCH_HOME=/home/user/.cache/torch \
     # Threads, not processes: the model is loaded once per process, so extra
-    # workers would multiply 2.2GB of resident memory for no throughput gain
-    # on 2 vCPU.
+    # workers would multiply 2.2GB of resident memory for no throughput gain on
+    # the 2 vCPU the service is deployed with.
     OMP_NUM_THREADS=2
 
 RUN useradd -m -u 1000 user
@@ -56,7 +62,7 @@ COPY --chown=user ml/ ./ml/
 USER user
 
 # Bake the embedding model in. This is the slow half of the build and the
-# reason a cold Space wakes in seconds rather than minutes.
+# reason a cold start is seconds rather than minutes.
 #
 # Formats the loader never reads are pruned. pytorch_model.bin is deliberately
 # not among them, despite being a 2.2GB duplicate of model.safetensors:
@@ -94,8 +100,8 @@ ENV HF_HUB_OFFLINE=1 \
 
 WORKDIR /app/backend
 
-# Overridden by the host: Fly sets 8080, HuggingFace Spaces uses 7860. The
-# CMD reads ${PORT}, so the image works on either without a rebuild.
+# Overridden by the host: Cloud Run injects PORT (8080). The CMD reads ${PORT},
+# so the image works on any of these targets without a rebuild.
 ENV PORT=8080
 EXPOSE 8080
 

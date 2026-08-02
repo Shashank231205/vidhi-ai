@@ -213,25 +213,33 @@ The two halves deploy separately, and they have to: Vercel's functions cap at
 250MB and 10s, while the backend holds a 1.03GB embedding model resident and an
 audit runs for minutes.
 
-**Backend → Fly.io.** One command, after `brew install flyctl && flyctl auth login`:
+**Backend → Google Cloud Run.** One command, after `gcloud auth login` and
+`gcloud config set project <your-project>`:
 
 ```bash
 ./deploy.sh
 ```
 
-It creates the app, pushes the credentials from `backend/.env` as Fly secrets —
-so they never enter git — deploys, and verifies `/health` and `/ready`. Later
-deploys are `./deploy.sh --update`.
+It enables the required APIs, stores the credentials from `backend/.env` in
+Secret Manager — so they never enter git and are not readable from the service
+spec — builds, deploys, and verifies `/health` and `/ready`. Later deploys are
+`./deploy.sh --update`.
 
-Sizing in `fly.toml` is measured rather than guessed: 2GB against a 1.03GB
-model, in Mumbai alongside the Supabase project, with idle machines stopped to
-stay inside the free allowance. A cold wake costs ~20s while the model loads;
-set `min_machines_running = 1` to avoid it.
+Cloud Run rather than Fly.io or HuggingFace Spaces, both of which were tried
+first: Spaces moved Docker behind a paid plan, and Fly's registry push failed on
+export because the image is ~9GB with BGE-M3's weights baked in. Cloud Run
+states no limit on image size and streams images block-by-block at boot, so the
+size costs little at startup.
+
+Sizing is measured rather than guessed: 4GB against a 2.2GB resident model, 2
+vCPU with startup boost, in Mumbai alongside the Supabase project, scaling to
+zero so an idle service costs nothing. A cold start pays the model load; set
+`--min-instances 1` to avoid it, at the cost of leaving the free allowance.
 
 **Frontend → Vercel**, with one environment variable:
 
 ```
-API_ORIGIN = https://vidhi-ai-api.fly.dev
+API_ORIGIN = https://<service>-<hash>.asia-south1.run.app
 ```
 
 Not `NEXT_PUBLIC_` — the proxy runs server-side, so the backend URL never
